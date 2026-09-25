@@ -1,0 +1,10 @@
+// module = package = CalculApp
+module CalculApp 
+{
+    // definit les methodes accessibles a distance  
+    interface Calculateur
+    {
+        // in indique que les parametres sont envoyes en entree vers le serveur 
+        double ajouter(in double a ,in double b);
+    };
+};
