@@ -23,5 +23,29 @@ public class CalculateurImpl extends  CalculateurPOA
             return  a/b;
         }
     }
-    
+    @Override
+    public double calculer(Operation op) throws DivisionParZero {
+        if (op.typeOperation.equals("+")) {
+            return op.nombreA + op.nombreB;
+        } else if (op.typeOperation.equals("-")) {
+            return op.nombreA - op.nombreB;
+        } else if (op.typeOperation.equals("/")) {
+            if (op.nombreB == 0) {
+                throw new DivisionParZero("Division par zéro impossible !");
+            }
+            return op.nombreA / op.nombreB;
+        }
+        return 0;
+    }
+    @Override 
+    public double calculerMoyenne( double[] nombres)
+    {
+        double somme =0;
+        for(double nombre : nombres)
+            {
+                somme+=nombre;
+            }
+        return somme/nombres.length ;
+    }
+        
 }

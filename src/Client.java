@@ -17,6 +17,12 @@ public class Client
                 double resultatSoustraction=calc.soustraire(12.5, 7.5);
                 System.out.println("Resulat recu du serveur addition:"+resultat);
                 System.out.println("Resulat recu du serveur soustraction:"+resultatSoustraction);
+                Operation op = new Operation(15.0, 3.0, "+");
+                double[] mesNotes = {14.5, 16.0, 12.5};
+                double moyenne = calc.calculerMoyenne(mesNotes);
+                System.out.println("Resulat recu du serveur moyenne:"+moyenne);
+                double resultatOperation = calc.calculer(op);
+                System.out.println("Resulat recu du serveur operation:"+resultatOperation);
                 double resultatDivision=calc.division(12, 0);
                 System.out.println("Resulat recu du serveur division:"+resultatDivision);
             } 
