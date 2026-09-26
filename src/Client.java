@@ -11,7 +11,7 @@ public class Client
             org.omg.CORBA.Object namingContextObject =orb.resolve_initial_references("NameService");
             NamingContextExt namingContext=NamingContextExtHelper.narrow(namingContextObject);
             Calculateur calc=CalculateurHelper.narrow(namingContext.resolve_str("CalculateurService"));
-            double resultat=calc.ajouter(12.5, 7.5);
+            double resultat=calc.ajouter(12.5, 7.6);
             System.out.println("Resulat recu du serveur :"+resultat);
 
             

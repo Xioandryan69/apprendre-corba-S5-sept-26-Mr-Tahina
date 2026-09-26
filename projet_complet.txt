@@ -1,0 +1,4947 @@
+=== CONCATÉNATION DU PROJET CORBA ===
+Date de génération : sam. 26 sept 2026 15:32:50 EAT
+======================================
+
+==================================================
+FICHIER : ./copie.sh
+==================================================
+#!/bin/bash
+
+OUTPUT_FILE="projet_complet.txt"
+
+# Vider le fichier de sortie s'il existe déjà
+> "$OUTPUT_FILE"
+
+echo "=== CONCATÉNATION DU PROJET CORBA ===" >> "$OUTPUT_FILE"
+echo "Date de génération : $(date)" >> "$OUTPUT_FILE"
+echo "======================================" >> "$OUTPUT_FILE"
+echo "" >> "$OUTPUT_FILE"
+
+# Rechercher les fichiers pertinents (.java, .sh, .idl, .md) en ignorant bin et orb.db
+find . \( -path "./bin" -o -path "./orb.db" \) -prune -o \
+       \( -name "*.java" -o -name "*.sh" -o -name "*.idl" -o -name "*.md" \) -type f -print | sort | while read -r file; do
+    
+    # Ne pas inclure le fichier de sortie ou le script lui-même s'il est en .sh
+    if [ "$file" != "./$OUTPUT_FILE" ]; then
+        echo "==================================================" >> "$OUTPUT_FILE"
+        echo "FICHIER : $file" >> "$OUTPUT_FILE"
+        echo "==================================================" >> "$OUTPUT_FILE"
+        cat "$file" >> "$OUTPUT_FILE"
+        echo -e "\n\n" >> "$OUTPUT_FILE"
+    fi
+done
+
+echo "Terminé ! Le contenu a été copié dans $OUTPUT_FILE"
+
+
+==================================================
+FICHIER : ./documentation/corba documentation/guide/lesson-1.md
+==================================================
+Pour apprendre à mettre en pratique CORBA, le plus simple est de réaliser un **exemple concret étape par étape** (par exemple en Java).
+
+Voici comment mettre en place une communication client-serveur pas à pas.
+
+---
+
+## Étape 1 : Écrire le contrat d'interface (`.idl`)
+
+
+
+Créez un fichier nommé **`Calculateur.idl`**. Ce fichier définit le contrat neutre.
+
+```idl
+module CalculApp {
+    interface Calculateur {
+        double ajouter(in double a, in double b);
+    };
+};
+
+```
+
+* **`module`** : Équivalent d'un `package` en Java ou d'un `namespace` en C++.
+* **`interface`** : Définit les méthodes accessibles à distance.
+
+
+* **`in`** : Indique que les paramètres `a` et `b` sont envoyés en entrée vers le serveur.
+
+---
+
+## Étape 2 : Compiler le fichier IDL
+
+
+
+Le compilateur IDL génère le **Stub** (client) et le **Skeleton** (serveur).
+
+Dans votre terminal (avec le SDK Java approprié ou un outil comme OpenORB / JacORB) :
+
+```bash
+idlj -fall Calculateur.idl
+
+```
+
+Cette commande génère un dossier `CalculApp` contenant les classes Java nécessaires (`_CalculateurStub.java`, `CalculateurPOA.java`, etc.).
+
+---
+
+## Étape 3 : Implémenter le Serveur (Le Servant)
+
+
+
+On crée la classe qui hérite du **POA** généré pour écrire la vraie logique métier.
+
+**`CalculateurImpl.java`**
+
+```java
+import CalculApp.CalculateurPOA;
+
+public class CalculateurImpl extends CalculateurPOA {
+    @Override
+    public double ajouter(double a, double b) {
+        System.out.println("Requête reçue : " + a + " + " + b);
+        return a + b;
+    }
+}
+
+```
+
+Puis, on initialise le serveur, l'ORB et le service de nommage :
+
+**`Serveur.java`**
+
+```java
+import org.omg.CORBA.ORB;
+import org.omg.PortableServer.POA;
+import org.omg.PortableServer.POAHelper;
+import org.omg.CosNaming.*;
+
+public class Serveur {
+    public static void main(String[] args) {
+        try {
+            // 1. Initialiser l'ORB
+            ORB orb = ORB.init(args, null);
+
+            // 2. Obtenir et activer le POA (Portable Object Adapter)
+            POA rootpoa = POAHelper.narrow(orb.resolve_initial_references("RootPOA"));
+            rootpoa.the_POAManager().activate();
+
+            // 3. Créer l'instance du Servant
+            CalculateurImpl calculateur = new CalculateurImpl();
+
+            // 4. Enregistrer l'objet auprès du service de nommage (Naming Service)
+            org.omg.CORBA.Object ref = rootpoa.servant_to_reference(calculateur);
+            
+            org.omg.CORBA.Object namingContextObj = orb.resolve_initial_references("NameService");
+            NamingContextExt namingContext = NamingContextExtHelper.narrow(namingContextObj);
+
+            NameComponent path[] = namingContext.to_name("CalculateurService");
+            namingContext.rebind(path, ref);
+
+            System.out.println("Serveur CORBA prêt et en attente...");
+
+            // 5. Lancer l'écoute des requêtes
+            orb.run();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+```
+
+---
+
+## Étape 4 : Développer le Client
+
+
+
+Le client recherche l'objet distant dans l'annuaire (Naming Service) et utilise le **Stub** pour exécuter la méthode.
+
+**`Client.java`**
+
+```java
+import org.omg.CORBA.ORB;
+import org.omg.CosNaming.*;
+import CalculApp.*;
+
+public class Client {
+    public static void main(String[] args) {
+        try {
+            // 1. Initialiser l'ORB
+            ORB orb = ORB.init(args, null);
+
+            // 2. Récupérer le Service de Nommage
+            org.omg.CORBA.Object namingContextObj = orb.resolve_initial_references("NameService");
+            NamingContextExt namingContext = NamingContextExtHelper.narrow(namingContextObj);
+
+            // 3. Chercher la référence de l'objet distant
+            Calculateur calc = CalculateurHelper.narrow(namingContext.resolve_str("CalculateurService"));
+
+            // 4. Appeler la méthode distante comme si elle était locale
+            double resultat = calc.ajouter(12.5, 7.5);
+            System.out.println("Résultat reçu du serveur : " + resultat);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+```
+
+---
+
+## Étape 5 : Exécution du système
+
+Pour faire fonctionner l'ensemble :
+
+1. **Démarrer le service de nommage** (ex: `orbd -ORBInitialPort 1050`).
+2. **Lancer le serveur** (`java Serveur -ORBInitialPort 1050 -ORBInitialHost localhost`).
+3. **Lancer le client** (`java Client -ORBInitialPort 1050 -ORBInitialHost localhost`).
+
+Le client affichera : `Résultat reçu du serveur : 20.0`.
+
+
+==================================================
+FICHIER : ./documentation/corba documentation/guide/lesson-2-a.md
+==================================================
+Pour apprendre à mettre en pratique CORBA, le plus simple est de réaliser un **exemple concret étape par étape** (par exemple en Java).
+
+Voici comment mettre en place une communication client-serveur pas à pas.
+
+---
+
+## Étape 1 : Écrire le contrat d'interface (`.idl`)
+
+
+
+Créez un fichier nommé **`Calculateur.idl`**. Ce fichier définit le contrat neutre.
+
+```idl
+module CalculApp {
+    interface Calculateur {
+        double ajouter(in double a, in double b);
+    };
+};
+
+```
+
+* **`module`** : Équivalent d'un `package` en Java ou d'un `namespace` en C++.
+* **`interface`** : Définit les méthodes accessibles à distance.
+
+
+* **`in`** : Indique que les paramètres `a` et `b` sont envoyés en entrée vers le serveur.
+
+---
+
+## Étape 2 : Compiler le fichier IDL
+
+
+
+Le compilateur IDL génère le **Stub** (client) et le **Skeleton** (serveur).
+
+Dans votre terminal (avec le SDK Java approprié ou un outil comme OpenORB / JacORB) :
+
+```bash
+idlj -fall Calculateur.idl
+
+```
+
+Cette commande génère un dossier `CalculApp` contenant les classes Java nécessaires (`_CalculateurStub.java`, `CalculateurPOA.java`, etc.).
+
+---
+
+## Étape 3 : Implémenter le Serveur (Le Servant)
+
+
+
+On crée la classe qui hérite du **POA** généré pour écrire la vraie logique métier.
+
+**`CalculateurImpl.java`**
+
+```java
+import CalculApp.CalculateurPOA;
+
+public class CalculateurImpl extends CalculateurPOA {
+    @Override
+    public double ajouter(double a, double b) {
+        System.out.println("Requête reçue : " + a + " + " + b);
+        return a + b;
+    }
+}
+
+```
+
+Puis, on initialise le serveur, l'ORB et le service de nommage :
+
+**`Serveur.java`**
+
+```java
+import org.omg.CORBA.ORB;
+import org.omg.PortableServer.POA;
+import org.omg.PortableServer.POAHelper;
+import org.omg.CosNaming.*;
+
+public class Serveur {
+    public static void main(String[] args) {
+        try {
+            // 1. Initialiser l'ORB
+            ORB orb = ORB.init(args, null);
+
+            // 2. Obtenir et activer le POA (Portable Object Adapter)
+            POA rootpoa = POAHelper.narrow(orb.resolve_initial_references("RootPOA"));
+            rootpoa.the_POAManager().activate();
+
+            // 3. Créer l'instance du Servant
+            CalculateurImpl calculateur = new CalculateurImpl();
+
+            // 4. Enregistrer l'objet auprès du service de nommage (Naming Service)
+            org.omg.CORBA.Object ref = rootpoa.servant_to_reference(calculateur);
+            
+            org.omg.CORBA.Object namingContextObj = orb.resolve_initial_references("NameService");
+            NamingContextExt namingContext = NamingContextExtHelper.narrow(namingContextObj);
+
+            NameComponent path[] = namingContext.to_name("CalculateurService");
+            namingContext.rebind(path, ref);
+
+            System.out.println("Serveur CORBA prêt et en attente...");
+
+            // 5. Lancer l'écoute des requêtes
+            orb.run();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+```
+
+---
+
+## Étape 4 : Développer le Client
+
+
+
+Le client recherche l'objet distant dans l'annuaire (Naming Service) et utilise le **Stub** pour exécuter la méthode.
+
+**`Client.java`**
+
+```java
+import org.omg.CORBA.ORB;
+import org.omg.CosNaming.*;
+import CalculApp.*;
+
+public class Client {
+    public static void main(String[] args) {
+        try {
+            // 1. Initialiser l'ORB
+            ORB orb = ORB.init(args, null);
+
+            // 2. Récupérer le Service de Nommage
+            org.omg.CORBA.Object namingContextObj = orb.resolve_initial_references("NameService");
+            NamingContextExt namingContext = NamingContextExtHelper.narrow(namingContextObj);
+
+            // 3. Chercher la référence de l'objet distant
+            Calculateur calc = CalculateurHelper.narrow(namingContext.resolve_str("CalculateurService"));
+
+            // 4. Appeler la méthode distante comme si elle était locale
+            double resultat = calc.ajouter(12.5, 7.5);
+            System.out.println("Résultat reçu du serveur : " + resultat);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+```
+
+---
+
+## Étape 5 : Exécution du système
+
+Pour faire fonctionner l'ensemble :
+
+1. **Démarrer le service de nommage** (ex: `orbd -ORBInitialPort 1050`).
+2. **Lancer le serveur** (`java Serveur -ORBInitialPort 1050 -ORBInitialHost localhost`).
+3. **Lancer le client** (`java Client -ORBInitialPort 1050 -ORBInitialHost localhost`).
+
+Le client affichera : `Résultat reçu du serveur : 20.0`.
+
+
+==================================================
+FICHIER : ./documentation/corba documentation/guide/lesson-2.md
+==================================================
+Oui. Maintenant que `idlj` a généré les fichiers Java, **ne les modifie pas**. La prochaine étape est de construire le petit système CORBA complet : **Implémentation serveur → Serveur → Client → exécution**.
+
+On va le faire progressivement pour que tu comprennes ce qui se passe.
+
+## 1. Vérifie d'abord les fichiers générés
+
+Depuis la racine du projet :
+
+```bash
+cd "/home/huhu/S5/Mr Tahina/CORBA/24 sept/apprendre-corba-S5-sept-26-Mr-Tahina"
+```
+
+Puis :
+
+```bash
+find src -type f | sort
+```
+
+Tu devrais avoir quelque chose proche de :
+
+```text
+src/CalculApp/Calculateur.java
+src/CalculApp/CalculateurHelper.java
+src/CalculApp/CalculateurHolder.java
+src/CalculApp/CalculateurOperations.java
+src/CalculApp/CalculateurPOA.java
+src/CalculApp/_CalculateurStub.java
+```
+
+Ces fichiers sont la **partie générée**.
+
+---
+
+# 2. Crée maintenant l'implémentation serveur
+
+C'est **la première classe que tu dois écrire toi-même**.
+
+Crée :
+
+```text
+src/CalculApp/CalculateurImpl.java
+```
+
+Commande :
+
+```bash
+nano src/CalculApp/CalculateurImpl.java
+```
+
+Mets :
+
+```java
+package CalculApp;
+
+public class CalculateurImpl extends CalculateurPOA {
+
+    @Override
+    public double ajouter(double a, double b) {
+        return a + b;
+    }
+}
+```
+
+### Comprends cette ligne
+
+```java
+public class CalculateurImpl extends CalculateurPOA
+```
+
+Tu dis :
+
+> Mon objet métier est un objet CORBA utilisable par le serveur.
+
+La relation est :
+
+```text
+CalculateurImpl
+      │
+      extends
+      ▼
+CalculateurPOA
+      │
+      ▼
+CORBA
+```
+
+Et :
+
+```java
+public double ajouter(double a, double b) {
+    return a + b;
+}
+```
+
+est **ton vrai métier**.
+
+Pour :
+
+```text
+10 + 5
+```
+
+le serveur fera réellement :
+
+```text
+15
+```
+
+---
+
+# 3. Compile
+
+Comme tu sais déjà que Java 8 fonctionne :
+
+```bash
+rm -rf bin
+mkdir bin
+```
+
+Puis :
+
+```bash
+/usr/lib/jvm/java-8-openjdk-amd64/bin/javac -d bin $(find src -name "*.java")
+```
+
+Tu devrais avoir éventuellement le warning :
+
+```text
+IORCheckImpl is internal proprietary API
+```
+
+mais **pas d'erreur**.
+
+---
+
+# 4. Maintenant crée le serveur
+
+Crée :
+
+```text
+src/Serveur.java
+```
+
+Commande :
+
+```bash
+nano src/Serveur.java
+```
+
+Pour un premier exercice, mets :
+
+```java
+import CalculApp.Calculateur;
+import CalculApp.CalculateurHelper;
+import CalculApp.CalculateurImpl;
+
+import org.omg.CORBA.ORB;
+import org.omg.PortableServer.POA;
+import org.omg.PortableServer.POAHelper;
+
+public class Serveur {
+
+    public static void main(String[] args) {
+
+        try {
+
+            // 1. Démarrer l'ORB
+            ORB orb = ORB.init(args, null);
+
+            // 2. Récupérer le POA
+            POA rootPOA =
+                POAHelper.narrow(
+                    orb.resolve_initial_references("RootPOA")
+                );
+
+            // 3. Créer l'objet métier
+            CalculateurImpl calculateurImpl =
+                new CalculateurImpl();
+
+            // 4. Transformer l'objet Java en objet CORBA
+            org.omg.CORBA.Object ref =
+                rootPOA.servant_to_reference(calculateurImpl);
+
+            // 5. Transformer la référence CORBA
+            //    en interface Calculateur
+            Calculateur calculateur =
+                CalculateurHelper.narrow(ref);
+
+            // 6. Afficher la référence CORBA
+            String ior =
+                orb.object_to_string(calculateur);
+
+            System.out.println("IOR =");
+            System.out.println(ior);
+
+            // 7. Activer le POA
+            rootPOA.the_POAManager().activate();
+
+            // 8. Le serveur attend les requêtes
+            System.out.println("Serveur CORBA démarré...");
+
+            orb.run();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+
+---
+
+# 5. Comprends le démarrage du serveur
+
+Il se passe ceci :
+
+```text
+Serveur.java
+     │
+     │ ORB.init()
+     ▼
+    ORB
+     │
+     │ RootPOA
+     ▼
+    POA
+     │
+     │ servant_to_reference()
+     ▼
+CalculateurImpl
+     │
+     ▼
+Référence CORBA
+     │
+     ▼
+    IOR
+```
+
+---
+
+# 6. Compile encore
+
+```bash
+/usr/lib/jvm/java-8-openjdk-amd64/bin/javac -d bin $(find src -name "*.java")
+```
+
+Si aucune erreur :
+
+```text
+✅ compilation réussie
+```
+
+---
+
+# 7. Lance le serveur
+
+Avec Java 8 :
+
+```bash
+/usr/lib/jvm/java-8-openjdk-amd64/bin/java -cp bin Serveur
+```
+
+Tu devrais obtenir quelque chose comme :
+
+```text
+IOR =
+IOR:000000000000...
+Serveur CORBA démarré...
+```
+
+⚠️ **Ne ferme pas ce terminal.**
+
+Le serveur doit rester actif parce que :
+
+```java
+orb.run();
+```
+
+signifie essentiellement :
+
+> ORB, reste maintenant en attente des requêtes des clients.
+
+Ton terminal sera donc « bloqué ». **C'est normal.**
+
+---
+
+# 8. Pourquoi afficher l'IOR ?
+
+Cette ligne :
+
+```java
+String ior = orb.object_to_string(calculateur);
+```
+
+transforme la référence CORBA en chaîne.
+
+Tu obtiens :
+
+```text
+IOR:000000...
+```
+
+Cette chaîne permet au client de retrouver l'objet distant.
+
+C'est donc notre premier moyen de faire :
+
+```text
+CLIENT
+   │
+   │ IOR
+   ▼
+SERVEUR
+```
+
+---
+
+# 9. Ensuite seulement : le client
+
+Quand le serveur fonctionne, ouvre **un deuxième terminal**.
+
+Ne tue pas le serveur.
+
+Dans le deuxième terminal, on créera :
+
+```text
+src/Client.java
+```
+
+Le client fera essentiellement :
+
+```text
+1. démarrer ORB
+2. récupérer l'IOR
+3. string_to_object()
+4. CalculateurHelper.narrow()
+5. calculateur.ajouter(10, 5)
+6. afficher 15
+```
+
+Le chemin complet deviendra :
+
+```text
+                SERVEUR
+                   │
+            CalculateurImpl
+                   │
+                   ▼
+                  POA
+                   │
+                   ▼
+                  ORB
+                   │
+                 réseau
+                   │
+                   ▼
+                  ORB
+                   │
+                   ▼
+                Client
+                   │
+                   ▼
+              _CalculateurStub
+                   │
+                   ▼
+        calculateur.ajouter(10,5)
+                   │
+                   ▼
+                  15
+```
+
+---
+
+## ⚠️ Une petite correction par rapport à ton apprentissage
+
+Pour l'instant, **ne cherche pas à comprendre `Helper`, `Stub`, `POA`, `Delegate` en exécutant tout d'un coup**.
+
+Tu as déjà étudié :
+
+```text
+Helper
+Stub
+POA
+```
+
+Maintenant on va les voir **en action**.
+
+### Ordre pédagogique
+
+```text
+Étape 1 ✅
+Calculateur.idl
+       ↓
+idlj
+       ↓
+fichiers Java générés
+
+Étape 2 ← NOUS SOMMES ICI
+       ↓
+CalculateurImpl
+
+Étape 3
+       ↓
+Serveur
+
+Étape 4
+       ↓
+IOR
+
+Étape 5
+       ↓
+Client
+
+Étape 6
+       ↓
+appel distant :
+calculateur.ajouter(10,5)
+
+Étape 7
+       ↓
+résultat : 15
+```
+
+**Commence uniquement par `CalculateurImpl.java`, compile, puis crée `Serveur.java`.** Si tu me montres ensuite la sortie de la compilation ou l'IOR, on pourra faire le **Client CORBA ligne par ligne** et suivre réellement la requête de `10 + 5` jusqu'au serveur.
+
+
+
+==================================================
+FICHIER : ./documentation/corba documentation/README.md
+==================================================
+Votre document contient déjà une très bonne synthèse détaillée de CORBA ! Voici les notions fondamentales à retenir pour maîtriser l'essentiel du sujet :
+
+---
+
+## 1. Vue d'ensemble : Qu'est-ce que CORBA ?
+
+**CORBA** (*Common Object Request Broker Architecture*) est une norme créée par l'**OMG** (*Object Management Group*). Son rôle est d'assurer l'interopérabilité entre des logiciels distribués : elle permet à un client d'appeler une méthode sur un objet serveur situé sur une autre machine, même s'ils sont écrits dans des **langages différents** (ex: Java et C++).
+
+---
+
+## 2. Le Modèle de Référence OMG
+
+L'OMG découpe les interfaces d'un système distribué en 4 niveaux :
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                   Interfaces d'Application                       │
+├─────────────────────────┬────────────────────────────────────────┤
+│  Interfaces de Domaine  │           Fonctions Communes           │
+├─────────────────────────┴────────────────────────────────────────┤
+│                       Services d'Objets                          │
+└──────────────────────────────────────────────────────────────────┘
+
+```
+
+1. **Services d'Objets (*Object Services*) :** Services système horizontaux fondamentaux.
+
+
+* *Service de Nommage (Naming Service) :* Annuaire pour retrouver un objet par son nom.
+
+
+* *Service de Trading (Trader Service) :* Recherche d'objets selon leurs critères ou fonctionnalités.
+
+
+* *Autres :* Sécurité, gestion des transactions, notification d'événements.
+
+
+
+
+2. **Fonctions Communes (*Common Facilities*) :** Interfaces horizontales orientées utilisateur (ex: intégration de documents composants).
+
+
+3. **Interfaces de Domaine (*Domain Interfaces*) :** Standards verticaux pour un secteur d'activité (télécoms, finance, santé, fabrication).
+
+
+4. **Interfaces d'Application (*Application Interfaces*) :** Code sur-mesure propre à une application (non standardisé par l'OMG).
+
+
+
+---
+
+## 3. Les Composants Internes de l'ORB
+
+L'**ORB** (*Object Request Broker*) agit comme un bus de communication pour offrir une **transparence de localisation** (l'appel distant ressemble à un appel local).
+
+```
+  CLIENT                                                     SERVEUR
+┌───────────────┐                                         ┌─────────┐
+│     Client    │                                         │ Servant │
+└───────┬───────┘                                         └────▲────┘
+        │                                                      │
+┌───────▼───────┬───────────────┐         ┌───────────────┬────┴────┐
+│   Stub IDL    │      DII      │         │      DSI      │Skeleton │
+├───────────────┴───────────────┤         ├───────────────┴─────────┤
+│         Interface ORB         │         │  POA (Adaptateur Objet) │
+└───────────────┬───────────────┘         └───────────────▲─────────┘
+                │                                         │
+┌───────────────▼─────────────────────────────────────────┴─────────┐
+│                      Bus ORB (Protocole IIOP)                     │
+└───────────────────────────────────────────────────────────────────┘
+
+```
+
+* **Fichier IDL (*Interface Definition Language*) :** Contrat d'interface neutre définissant les méthodes et types autorisés.
+* **Servant :** L'implémentation concrète de l'objet dans le langage cible (ex: classe C++ ou Java).
+
+
+* **Stub (Souche) :** Généré automatiquement par le compilateur IDL côté client. Il intercepte l'appel et réalise le **Marshaling** (conversion des paramètres en binaire CDR).
+
+
+* **Skeleton (Squelette) :** Généré automatiquement côté serveur. Il reçoit le message binaire, effectue le **Demarshaling** (décodage) et appelle le Servant.
+
+
+* **POA (*Portable Object Adapter*) :** Composant serveur faisant le lien entre l'ORB et les Servants. Il gère l'activation des objets et optimise l'utilisation de la mémoire RAM (ex: réutilisation d'une instance pour plusieurs identifiants).
+
+
+* **DII / DSI (Interfaces Dynamiques) :**
+* **DII (*Dynamic Invocation Interface*) :** Permet au client de fabriquer et d'émettre des requêtes à la volée sans connaître l'interface à la compilation.
+
+
+* **DSI (*Dynamic Skeleton Interface*) :** Permet au serveur de traiter dynamiquement des requêtes sans Skeleton prédéterminé.
+
+
+
+
+
+---
+
+## 4. Protocole & Format de Données
+
+* **Protocole :** **IIOP** (*Internet Inter-ORB Protocol*), version adaptée au réseau **TCP/IP**.
+* **Format des données :** Encodage binaire **CDR** (*Common Data Representation*).
+* *Avantage :* Très rapide et économe en bande passante.
+* *Inconvénient :* Format binaire non lisible directement par un humain.
+
+
+
+---
+
+## 5. Bilan Synthetique
+
+| Points Forts | Limites & Remplaçants Modernes |
+| --- | --- |
+| • Interopérabilité multi-langages
+
+<br>
+
+<br>• Transparence réseau
+
+<br>
+
+<br>• Bonnes performances (binaire) | • Complexité de configuration et couplage fort<br>
+
+<br>• Difficile à faire passer à travers les pare-feux<br>
+
+<br>• **Alternatives actuelles :** API REST (JSON/HTTP) ou gRPC (HTTP/2 + Protobuf) |
+
+
+==================================================
+FICHIER : ./documentation/corba documentation/technique.md
+==================================================
+Parfait. 🎯 Ton environnement est **exactement ce qu'il faut pour un ancien projet CORBA**.
+
+Tu as confirmé :
+
+```text
+Java       : 1.8.0_504
+javac      : 1.8.0_504
+idlj       : 3.2
+CORBA ORB  : org/omg/CORBA/ORB.class
+```
+
+Donc **ne télécharge aucun `corba.jar`**. Dans ton Java 8, CORBA est déjà intégré dans `rt.jar`.
+
+Le problème vient simplement du fait que **VS Code compile actuellement ton projet avec Java 21**.
+
+---
+
+# Étape 1 — Tester ton projet CORBA avec Java 8
+
+Va dans ton projet :
+
+```bash
+cd "/home/huhu/S5/Mr Tahina/CORBA/24 sept/apprendre-corba-S5-sept-26-Mr-Tahina"
+```
+
+Regarde la structure :
+
+```bash
+find . -maxdepth 3 -type f | sort
+```
+
+Ensuite, teste directement la compilation avec Java 8.
+
+Si tes `.java` sont dans `src` :
+
+```bash
+mkdir -p bin
+```
+
+Puis :
+
+```bash
+/usr/lib/jvm/java-8-openjdk-amd64/bin/javac -d bin $(find src -name "*.java")
+```
+
+### Si ça compile
+
+Tu verras simplement revenir le prompt :
+
+```text
+huhu@huhu-GL552JX:~/...$
+```
+
+sans erreur.
+
+Cela prouvera que :
+
+```text
+Java 8
+   ↓
+CORBA
+   ↓
+org.omg.CORBA
+   ↓
+_CalculateurStub
+```
+
+fonctionne correctement.
+
+---
+
+# Étape 2 — Configurer VS Code
+
+Maintenant nous allons dire à **VS Code** :
+
+> Pour ce projet CORBA, utilise Java 8.
+
+Dans ton projet :
+
+```bash
+mkdir -p .vscode
+```
+
+Puis ouvre le fichier :
+
+```bash
+code .vscode/settings.json
+```
+
+Mets :
+
+```json
+{
+    "java.configuration.runtimes": [
+        {
+            "name": "JavaSE-1.8",
+            "path": "/usr/lib/jvm/java-8-openjdk-amd64",
+            "default": true
+        },
+        {
+            "name": "JavaSE-21",
+            "path": "/usr/lib/jvm/java-21-openjdk-amd64"
+        }
+    ]
+}
+```
+
+### Important
+
+Le `default: true` ici signifie :
+
+> **Java 8 est utilisé par ce projet VS Code.**
+
+Cela ne change pas définitivement ton Ubuntu.
+
+Ton terminal global peut continuer à avoir :
+
+```bash
+java -version
+```
+
+qui donne :
+
+```text
+21.0.12
+```
+
+---
+
+# Étape 3 — Recharge VS Code
+
+Dans VS Code :
+
+**`Ctrl + Shift + P`**
+
+cherche :
+
+```text
+Java: Clean Java Language Server Workspace
+```
+
+Puis sélectionne :
+
+```text
+Restart and delete
+```
+
+VS Code va redémarrer son serveur Java.
+
+Ensuite regarde ton fichier :
+
+```text
+_CalculateurStub.java
+```
+
+Les erreurs :
+
+```text
+org.omg cannot be resolved to a type
+```
+
+devraient disparaître.
+
+---
+
+# Étape 4 — Vérifier le JDK utilisé par VS Code
+
+Dans VS Code :
+
+**Ctrl + Shift + P**
+
+puis :
+
+```text
+Java: Configure Java Runtime
+```
+
+Tu devrais voir quelque chose comme :
+
+```text
+Installed JDKs
+
+JavaSE-1.8
+/usr/lib/jvm/java-8-openjdk-amd64
+
+JavaSE-21
+/usr/lib/jvm/java-21-openjdk-amd64
+```
+
+Et pour ton projet CORBA :
+
+```text
+JavaSE-1.8
+```
+
+doit être sélectionné.
+
+---
+
+# Pourquoi ça fonctionne ?
+
+Ton `_CalculateurStub.java` contient des classes de l'ancien modèle CORBA :
+
+```java
+org.omg.CORBA.ORB
+```
+
+```java
+org.omg.CORBA.portable.ObjectImpl
+```
+
+```java
+org.omg.CORBA.portable.InputStream
+```
+
+```java
+org.omg.CORBA.portable.OutputStream
+```
+
+Java 8 possède ces classes directement dans :
+
+```text
+/usr/lib/jvm/java-8-openjdk-amd64/jre/lib/rt.jar
+```
+
+Tu viens d'ailleurs de le démontrer avec :
+
+```text
+org/omg/CORBA/ORB.class
+```
+
+Donc :
+
+```text
+Java 8
+   │
+   └── rt.jar
+        │
+        └── org.omg.CORBA
+             │
+             ├── ORB
+             ├── Object
+             ├── Any
+             ├── TypeCode
+             └── portable.*
+```
+
+Alors que Java 21 n'a plus ces packages dans son JDK.
+
+---
+
+# Et `idlj` est également présent
+
+C'est **très important pour ton cours**.
+
+Tu as :
+
+```text
+IDL-to-Java compiler (portable), version "3.2"
+```
+
+Donc tu peux faire par exemple :
+
+```bash
+idlj
+```
+
+pour transformer un fichier :
+
+```text
+Calculateur.idl
+```
+
+en classes Java CORBA :
+
+```text
+Calculateur.java
+CalculateurHelper.java
+CalculateurHolder.java
+CalculateurOperations.java
+_CalculateurStub.java
+```
+
+C'est probablement exactement le mécanisme utilisé dans ton TP.
+
+---
+
+## ⚠️ Mais je veux vérifier une chose avant qu'on continue
+
+Ne modifie **pas** encore `_CalculateurStub.java`.
+
+Fais simplement :
+
+```bash
+cd "/home/huhu/S5/Mr Tahina/CORBA/24 sept/apprendre-corba-S5-sept-26-Mr-Tahina"
+```
+
+puis :
+
+```bash
+find . -maxdepth 3 -type f | sort
+```
+
+**Envoie-moi le résultat.**
+
+Je veux voir ton projet CORBA complet (`.idl`, `Client`, `Server`, `Stub`, `Skeleton`, etc.) afin de te montrer **la chaîne complète CORBA** :
+
+```text
+Calculateur.idl
+      ↓
+     idlj
+      ↓
+Classes Java
+      ↓
+      ├── Client
+      ├── Server
+      ├── Stub
+      └── Skeleton/POA
+      ↓
+      ORB
+      ↓
+Communication Client ↔ Serveur
+```
+
+On pourra ensuite faire fonctionner ton exemple **avec Java 8 sans toucher à ton Java 21**.
+
+
+
+==================================================
+FICHIER : ./documentation/java/CalculareurHelper.md
+==================================================
+Oui. Ici, tu arrives sur une autre pièce **très importante de CORBA** : `CalculateurHelper`.
+
+Si `_CalculateurStub` est **le représentant de l'objet distant côté client**, alors `CalculateurHelper` est plutôt **la boîte à outils qui permet à CORBA de manipuler et convertir les références vers `Calculateur`**.
+
+On va comprendre **chaque bloc**, puis comparer `Helper`, `Stub`, `POA` et `Operations`.
+
+---
+
+# 1. D'abord : où sommes-nous dans CORBA ?
+
+Tu as probablement obtenu plusieurs fichiers grâce à :
+
+```bash
+idlj Calculateur.idl
+```
+
+Par exemple :
+
+```text
+CalculApp/
+├── Calculateur.java
+├── CalculateurHelper.java
+├── CalculateurHolder.java
+├── CalculateurOperations.java
+├── CalculateurPOA.java
+└── _CalculateurStub.java
+```
+
+Ils ont chacun un rôle différent :
+
+| Fichier                      | Rôle                                      |
+| ---------------------------- | ----------------------------------------- |
+| `Calculateur.java`           | Interface CORBA                           |
+| `CalculateurOperations.java` | Déclaration des opérations                |
+| `_CalculateurStub.java`      | Proxy côté client                         |
+| `CalculateurHelper.java`     | Conversion/manipulation CORBA             |
+| `CalculateurHolder.java`     | Transport de certaines références/valeurs |
+| `CalculateurPOA.java`        | Squelette côté serveur                    |
+| `CalculateurImpl.java`       | Ton vrai code métier                      |
+
+La relation importante est :
+
+```text
+                    Calculateur.idl
+                          │
+                         idlj
+                          │
+          ┌───────────────┼────────────────┐
+          ▼               ▼                ▼
+     Interface          Helper           Stub
+     contrat          outils CORBA     proxy client
+          │                                │
+          │                                │
+          ▼                                ▼
+       serveur                         ORB/réseau
+```
+
+---
+
+# 2. `package CalculApp;`
+
+```java
+package CalculApp;
+```
+
+Cela signifie que `CalculateurHelper` appartient au package :
+
+```text
+CalculApp
+```
+
+Donc son nom complet est :
+
+```text
+CalculApp.CalculateurHelper
+```
+
+Même principe que :
+
+```text
+CalculApp.Calculateur
+CalculApp._CalculateurStub
+CalculApp.CalculateurPOA
+```
+
+---
+
+# 3. La classe Helper
+
+```java
+abstract public class CalculateurHelper
+```
+
+Pourquoi `abstract` ?
+
+Parce que cette classe n'est pas destinée à être utilisée comme un objet métier.
+
+Tu ne fais normalement jamais :
+
+```java
+new CalculateurHelper();
+```
+
+Le Helper fournit principalement des **méthodes statiques** :
+
+```java
+CalculateurHelper.narrow(...)
+CalculateurHelper.read(...)
+CalculateurHelper.write(...)
+CalculateurHelper.insert(...)
+CalculateurHelper.extract(...)
+CalculateurHelper.type()
+CalculateurHelper.id()
+```
+
+Donc pense :
+
+> **Helper = boîte à outils statique générée par CORBA.**
+
+---
+
+# 4. `_id`
+
+```java
+private static String _id =
+    "IDL:CalculApp/Calculateur:1.0";
+```
+
+C'est le **Repository ID** de ton interface.
+
+Il identifie :
+
+```text
+IDL
+│
+├── module : CalculApp
+├── interface : Calculateur
+└── version : 1.0
+```
+
+Donc :
+
+```text
+IDL:CalculApp/Calculateur:1.0
+```
+
+sert d'identifiant CORBA pour savoir :
+
+> « Cet objet distant implémente-t-il bien l'interface `Calculateur` ? »
+
+Tu vas retrouver cette valeur plus tard dans :
+
+```java
+obj._is_a(id())
+```
+
+---
+
+# 5. `insert()`
+
+Regardons :
+
+```java
+public static void insert(
+    org.omg.CORBA.Any a,
+    CalculApp.Calculateur that)
+```
+
+Il y a deux paramètres.
+
+### `a`
+
+```java
+org.omg.CORBA.Any a
+```
+
+`Any` est un conteneur CORBA capable de transporter différentes sortes de valeurs.
+
+On peut le voir comme :
+
+```text
+Any
+ │
+ ├── int
+ ├── double
+ ├── String
+ ├── objet CORBA
+ └── ...
+```
+
+C'est un peu comme une **boîte universelle CORBA**.
+
+### `that`
+
+```java
+CalculApp.Calculateur that
+```
+
+C'est l'objet/référence CORBA que nous voulons mettre dans le `Any`.
+
+---
+
+# 6. `create_output_stream()`
+
+```java
+org.omg.CORBA.portable.OutputStream out =
+    a.create_output_stream();
+```
+
+On demande au `Any` :
+
+> Prépare-moi un flux dans lequel je vais écrire la valeur.
+
+On obtient :
+
+```text
+Any
+ │
+ └── OutputStream
+```
+
+---
+
+# 7. `a.type(type())`
+
+```java
+a.type(type());
+```
+
+On indique au `Any` **quel type CORBA il contient**.
+
+Et :
+
+```java
+type()
+```
+
+renvoie le `TypeCode` de :
+
+```text
+CalculApp.Calculateur
+```
+
+Donc conceptuellement :
+
+```text
+Any
+ │
+ ├── Type = Calculateur
+ │
+ └── valeur = référence vers Calculateur
+```
+
+---
+
+# 8. `write(out, that)`
+
+```java
+write(out, that);
+```
+
+Cette ligne appelle :
+
+```java
+CalculateurHelper.write(...)
+```
+
+qui se trouve plus bas.
+
+Elle va écrire la référence CORBA dans le flux.
+
+Donc :
+
+```text
+Calculateur
+      ↓
+write()
+      ↓
+OutputStream
+```
+
+---
+
+# 9. `a.read_value(...)`
+
+```java
+a.read_value(
+    out.create_input_stream(),
+    type()
+);
+```
+
+Ça peut paraître bizarre :
+
+```text
+OutputStream
+     ↓
+InputStream
+```
+
+mais CORBA fonctionne avec cette mécanique pour reconstruire la valeur dans le `Any`.
+
+Conceptuellement :
+
+```text
+Calculateur
+      ↓
+   write()
+      ↓
+OutputStream
+      ↓
+InputStream
+      ↓
+Any
+```
+
+À la fin :
+
+```text
+Any
+┌────────────────────────┐
+│ type = Calculateur     │
+│ value = référence CORBA│
+└────────────────────────┘
+```
+
+---
+
+# 10. `extract()`
+
+Maintenant l'opération inverse :
+
+```java
+public static CalculApp.Calculateur extract(
+    org.omg.CORBA.Any a)
+```
+
+Si `insert()` signifie :
+
+```text
+Calculateur → Any
+```
+
+alors `extract()` signifie :
+
+```text
+Any → Calculateur
+```
+
+---
+
+## La ligne
+
+```java
+return read(a.create_input_stream());
+```
+
+On récupère le contenu du `Any` sous forme de flux :
+
+```text
+Any
+ ↓
+InputStream
+```
+
+puis :
+
+```java
+read(...)
+```
+
+transforme le flux en :
+
+```text
+Calculateur
+```
+
+Donc :
+
+```text
+insert()
+Calculateur → Any
+
+extract()
+Any → Calculateur
+```
+
+C'est une paire très importante.
+
+---
+
+# 11. `__typeCode`
+
+```java
+private static org.omg.CORBA.TypeCode __typeCode = null;
+```
+
+CORBA utilise `TypeCode` pour représenter des informations sur un type.
+
+Ici :
+
+```text
+TypeCode
+   ↓
+CalculApp.Calculateur
+```
+
+Au départ :
+
+```java
+__typeCode = null;
+```
+
+Donc le type n'a pas encore été construit.
+
+---
+
+# 12. La méthode `type()`
+
+```java
+synchronized public static org.omg.CORBA.TypeCode type()
+```
+
+Elle retourne le `TypeCode` de `Calculateur`.
+
+Pourquoi `synchronized` ?
+
+Parce que plusieurs threads pourraient appeler `type()` simultanément.
+
+On veut éviter que plusieurs threads construisent en même temps :
+
+```text
+__typeCode
+```
+
+---
+
+# 13. Le test `if`
+
+```java
+if (__typeCode == null)
+```
+
+On demande :
+
+> Est-ce que le TypeCode a déjà été créé ?
+
+### Première fois
+
+```text
+__typeCode == null
+```
+
+Donc on le crée.
+
+### Deuxième fois
+
+```text
+__typeCode != null
+```
+
+On réutilise celui qui existe.
+
+C'est une forme de **lazy initialization**.
+
+---
+
+# 14. `ORB.init()`
+
+```java
+org.omg.CORBA.ORB.init()
+```
+
+On initialise l'ORB.
+
+Puis :
+
+```java
+.create_interface_tc(...)
+```
+
+demande :
+
+> Crée-moi un `TypeCode` représentant une interface CORBA.
+
+---
+
+# 15. `create_interface_tc`
+
+```java
+__typeCode =
+    org.omg.CORBA.ORB.init()
+        .create_interface_tc(
+            CalculApp.CalculateurHelper.id(),
+            "Calculateur"
+        );
+```
+
+Les deux paramètres sont :
+
+```text
+1. ID
+2. nom
+```
+
+Donc :
+
+```text
+ID
+↓
+IDL:CalculApp/Calculateur:1.0
+
+Nom
+↓
+Calculateur
+```
+
+CORBA peut ainsi représenter le type :
+
+```text
+interface Calculateur
+```
+
+---
+
+# 16. `id()`
+
+```java
+public static String id()
+{
+    return _id;
+}
+```
+
+Très simple.
+
+Cette méthode retourne :
+
+```text
+IDL:CalculApp/Calculateur:1.0
+```
+
+Donc :
+
+```java
+CalculateurHelper.id()
+```
+
+donne :
+
+```text
+IDL:CalculApp/Calculateur:1.0
+```
+
+Pourquoi créer une méthode au lieu d'utiliser directement `_id` ?
+
+Parce que les classes CORBA générées utilisent systématiquement cette méthode pour obtenir l'identifiant de manière standardisée.
+
+---
+
+# 17. `read()`
+
+Maintenant :
+
+```java
+public static CalculApp.Calculateur read(
+    org.omg.CORBA.portable.InputStream istream)
+```
+
+Son travail :
+
+> Lire une référence `Calculateur` depuis un flux CORBA.
+
+La ligne importante :
+
+```java
+return narrow(
+    istream.read_Object(_CalculateurStub.class)
+);
+```
+
+Décomposons.
+
+---
+
+# 18. `read_Object()`
+
+```java
+istream.read_Object(_CalculateurStub.class)
+```
+
+On demande :
+
+> Lis-moi un objet CORBA depuis ce flux.
+
+On obtient quelque chose de type :
+
+```text
+org.omg.CORBA.Object
+```
+
+Mais nous voulons :
+
+```text
+CalculApp.Calculateur
+```
+
+Alors on utilise :
+
+```java
+narrow(...)
+```
+
+---
+
+# 19. `narrow()` — une méthode extrêmement importante
+
+C'est probablement **la méthode la plus importante de `CalculateurHelper`**.
+
+```java
+public static CalculApp.Calculateur narrow(
+    org.omg.CORBA.Object obj)
+```
+
+Son objectif est :
+
+> Transformer une référence CORBA générique en référence `Calculateur`.
+
+Visualise :
+
+```text
+CORBA Object
+     │
+     │ narrow()
+     ▼
+Calculateur
+```
+
+---
+
+# 20. Premier test : `obj == null`
+
+```java
+if (obj == null)
+    return null;
+```
+
+Simple :
+
+```text
+objet inexistant
+     ↓
+null
+```
+
+Pas besoin d'aller plus loin.
+
+---
+
+# 21. Deuxième test : `instanceof`
+
+```java
+else if (obj instanceof CalculApp.Calculateur)
+    return (CalculApp.Calculateur)obj;
+```
+
+On demande :
+
+> Est-ce que cet objet est déjà un `Calculateur` ?
+
+Si oui :
+
+```text
+Object
+ ↓
+Calculateur
+```
+
+et on peut simplement faire un cast :
+
+```java
+(CalculApp.Calculateur)obj
+```
+
+---
+
+# 22. Le test `_is_a()`
+
+Maintenant le cas intéressant :
+
+```java
+else if (!obj._is_a(id()))
+    throw new org.omg.CORBA.BAD_PARAM();
+```
+
+On demande à l'objet CORBA :
+
+```java
+obj._is_a(
+    "IDL:CalculApp/Calculateur:1.0"
+)
+```
+
+La question envoyée à l'objet distant est essentiellement :
+
+> Est-ce que tu es compatible avec l'interface `Calculateur` ?
+
+Si la réponse est :
+
+```text
+NON
+```
+
+alors :
+
+```java
+throw new BAD_PARAM();
+```
+
+CORBA indique que le paramètre n'est pas du type attendu.
+
+---
+
+# 23. Et si `_is_a()` répond oui ?
+
+Alors on arrive ici :
+
+```java
+else
+{
+    org.omg.CORBA.portable.Delegate delegate =
+        ((org.omg.CORBA.portable.ObjectImpl)obj)._get_delegate();
+
+    CalculApp._CalculateurStub stub =
+        new CalculApp._CalculateurStub();
+
+    stub._set_delegate(delegate);
+
+    return stub;
+}
+```
+
+🔥 C'est **la fabrication du Stub**.
+
+---
+
+# 24. Récupération du `Delegate`
+
+```java
+Delegate delegate =
+    ((ObjectImpl)obj)._get_delegate();
+```
+
+On récupère le mécanisme de communication associé à la référence CORBA.
+
+Conceptuellement :
+
+```text
+CORBA Object
+      │
+      ▼
+   Delegate
+```
+
+---
+
+# 25. Création du Stub
+
+```java
+CalculApp._CalculateurStub stub =
+    new CalculApp._CalculateurStub();
+```
+
+On crée un nouveau proxy :
+
+```text
+_CalculateurStub
+```
+
+Il est encore vide concernant sa destination.
+
+---
+
+# 26. `_set_delegate`
+
+```java
+stub._set_delegate(delegate);
+```
+
+On donne au nouveau Stub le Delegate.
+
+Donc :
+
+```text
+             _CalculateurStub
+                    │
+                    ▼
+                 Delegate
+                    │
+                    ▼
+                   ORB
+                    │
+                    ▼
+              objet distant
+```
+
+Maintenant le Stub sait comment atteindre l'objet distant.
+
+---
+
+# 27. `return stub`
+
+```java
+return stub;
+```
+
+Et voilà.
+
+Le programme reçoit :
+
+```text
+Calculateur
+```
+
+mais derrière cette interface se trouve :
+
+```text
+_CalculateurStub
+```
+
+C'est précisément le principe du **proxy distant**.
+
+---
+
+# 28. Pourquoi `narrow()` est nécessaire ?
+
+Imagine que l'ORB te donne :
+
+```java
+org.omg.CORBA.Object obj
+```
+
+Mais ton programme veut :
+
+```java
+Calculateur calculateur
+```
+
+Java ne peut pas simplement deviner que :
+
+```text
+Object
+```
+
+correspond à :
+
+```text
+Calculateur
+```
+
+CORBA utilise donc :
+
+```java
+CalculateurHelper.narrow(obj)
+```
+
+pour faire cette conversion correctement.
+
+---
+
+# 29. `unchecked_narrow()`
+
+Maintenant tu as :
+
+```java
+public static CalculApp.Calculateur unchecked_narrow(
+    org.omg.CORBA.Object obj)
+```
+
+C'est presque la même chose que :
+
+```java
+narrow()
+```
+
+Mais avec une différence importante.
+
+### `narrow()`
+
+Vérifie :
+
+```java
+obj._is_a(id())
+```
+
+Donc :
+
+```text
+Est-ce réellement un Calculateur ?
+```
+
+### `unchecked_narrow()`
+
+Ne fait pas cette vérification.
+
+Il fait directement :
+
+```java
+Delegate delegate =
+    ((ObjectImpl)obj)._get_delegate();
+```
+
+puis :
+
+```java
+CalculateurStub stub =
+    new CalculateurStub();
+
+stub._set_delegate(delegate);
+
+return stub;
+```
+
+Donc :
+
+```text
+narrow()
+    ↓
+vérification du type
+    ↓
+Stub
+
+unchecked_narrow()
+    ↓
+pas de vérification
+    ↓
+Stub
+```
+
+---
+
+# 30. Pourquoi avoir `unchecked_narrow()` ?
+
+Parce que parfois le programme sait déjà que l'objet est du bon type.
+
+Donc faire une vérification supplémentaire serait inutile.
+
+Mais attention :
+
+> `unchecked_narrow()` ne rend pas l'objet magiquement compatible.
+
+Si tu lui donnes n'importe quel objet CORBA qui n'a rien à voir avec `Calculateur`, tu peux avoir des problèmes plus tard.
+
+---
+
+# 31. La différence avec le Stub
+
+C'est très important de ne pas confondre :
+
+### `_CalculateurStub`
+
+```text
+représente l'objet distant
+```
+
+### `CalculateurHelper`
+
+```text
+aide CORBA à manipuler la référence
+```
+
+Par exemple :
+
+```java
+Calculateur calculateur =
+    CalculateurHelper.narrow(obj);
+```
+
+Le résultat réel peut être :
+
+```text
+calculateur
+     │
+     ▼
+_CalculateurStub
+     │
+     ▼
+Delegate
+     │
+     ▼
+ORB
+     │
+     ▼
+Serveur
+```
+
+---
+
+# 32. Comparaison avec une poste
+
+Imagine une entreprise distante.
+
+```text
+CalculateurImpl
+```
+
+est le **vrai employé** qui fait le calcul.
+
+```text
+_CalculateurStub
+```
+
+est le **bureau local de correspondance**.
+
+```text
+CalculateurHelper
+```
+
+est le **service administratif** qui sait transformer les documents et références.
+
+```text
+ORB
+```
+
+est le **réseau postal**.
+
+Donc :
+
+```text
+Client
+  │
+  │ "Fais 10 + 5"
+  ▼
+Stub
+  │
+  │ document CORBA
+  ▼
+ORB
+  │
+  │ réseau
+  ▼
+Serveur
+  │
+  ▼
+CalculateurImpl
+```
+
+Le Helper aide notamment à dire :
+
+> « Cette référence CORBA correspond bien à `Calculateur`, construis-moi le Stub approprié. »
+
+---
+
+# 33. Maintenant le fichier entier résumé
+
+Tu peux retenir les fonctions du Helper comme ceci :
+
+```text
+CalculateurHelper
+│
+├── id()
+│     └── donne l'identité CORBA
+│
+├── type()
+│     └── donne le TypeCode CORBA
+│
+├── insert()
+│     └── Calculateur → Any
+│
+├── extract()
+│     └── Any → Calculateur
+│
+├── write()
+│     └── Calculateur → OutputStream
+│
+├── read()
+│     └── InputStream → Calculateur
+│
+├── narrow()
+│     └── Object CORBA → Calculateur
+│         + vérification
+│
+└── unchecked_narrow()
+      └── Object CORBA → Calculateur
+          sans vérification
+```
+
+---
+
+# 34. Le chemin typique dans un vrai programme CORBA
+
+Tu verras souvent quelque chose comme :
+
+```java
+org.omg.CORBA.Object obj =
+    orb.string_to_object(ior);
+```
+
+À ce stade :
+
+```text
+obj
+ ↓
+CORBA.Object
+```
+
+Puis :
+
+```java
+Calculateur calculateur =
+    CalculateurHelper.narrow(obj);
+```
+
+Le Helper fait :
+
+```text
+CORBA.Object
+     │
+     ├── null ?
+     │
+     ├── déjà Calculateur ?
+     │
+     ├── _is_a("IDL:CalculApp/Calculateur:1.0") ?
+     │
+     └── récupérer Delegate
+             ↓
+        créer Stub
+             ↓
+        _set_delegate()
+             ↓
+        retourner Stub
+```
+
+Et maintenant :
+
+```java
+calculateur.ajouter(10, 5);
+```
+
+déclenche :
+
+```text
+Calculateur
+     ↓
+_CalculateurStub
+     ↓
+_request()
+     ↓
+write_double()
+     ↓
+_invoke()
+     ↓
+ORB
+     ↓
+réseau
+     ↓
+Serveur
+```
+
+---
+
+# 35. La grande différence à retenir
+
+Si ton professeur te demande :
+
+### « À quoi sert `CalculateurHelper` ? »
+
+Tu peux répondre :
+
+> **`CalculateurHelper` est une classe générée par `idlj` qui fournit les opérations utilitaires nécessaires pour manipuler le type CORBA `Calculateur`. Elle permet notamment de convertir une référence CORBA générique en Stub grâce à `narrow()`, de sérialiser/désérialiser une référence avec `read()` et `write()`, de l'insérer ou l'extraire d'un `Any`, et d'obtenir son `Repository ID` et son `TypeCode`.**
+
+Et si on te demande :
+
+### « Quelle est la méthode la plus importante côté client ? »
+
+Pour comprendre les programmes CORBA classiques :
+
+```java
+CalculateurHelper.narrow(obj)
+```
+
+Parce qu'elle réalise le passage conceptuel :
+
+```text
+             CORBA
+              Object
+                │
+                │ narrow()
+                ▼
+          Calculateur
+                │
+                ▼
+      _CalculateurStub
+                │
+                ▼
+             Delegate
+                │
+                ▼
+               ORB
+                │
+                ▼
+             Serveur
+```
+
+**Phrase à graver :**
+
+> **Le Stub représente l'objet distant ; le Helper sait comment transformer une référence CORBA en ce Stub.**
+
+C'est une distinction fondamentale.
+
+
+
+==================================================
+FICHIER : ./documentation/java/_CalculateurStub.md
+==================================================
+Oui. On va le faire **comme en cours avec un maître et un disciple** : pas seulement traduire chaque ligne, mais comprendre **ce qui se passe réellement derrière la ligne**, et surtout le chemin **Client → Stub → ORB → réseau → Serveur → ORB → Stub → Client**.
+
+Ton fichier est particulièrement intéressant parce que `_CalculateurStub.java` est le **traducteur entre ton code Java normal et les messages CORBA envoyés à distance**.
+
+---
+
+# 1. D'abord, l'idée générale
+
+Supposons que ton `.idl` contient :
+
+```idl
+module CalculApp {
+    interface Calculateur {
+        double ajouter(in double a, in double b);
+    };
+};
+```
+
+Tu écris ensuite côté client :
+
+```java
+Calculateur calculateur = ...;
+
+double resultat = calculateur.ajouter(10, 5);
+```
+
+Tu as l'impression de faire :
+
+```text
+calculateur.ajouter(10, 5)
+```
+
+directement.
+
+Mais en réalité :
+
+```text
+CLIENT
+  |
+  | calculateur.ajouter(10, 5)
+  v
+_STUB
+  |
+  | transforme 10 et 5 en message CORBA
+  v
+ORB
+  |
+  | réseau
+  v
+SERVEUR
+  |
+  v
+CalculateurImpl
+  |
+  | ajouter(10,5)
+  v
+15
+  |
+  v
+ORB serveur
+  |
+  | réseau
+  v
+ORB client
+  |
+  v
+_STUB
+  |
+  v
+15
+```
+
+C'est **le rôle fondamental du Stub**.
+
+> Le Stub est comme un **ambassadeur** : ton client lui parle normalement en Java, et lui traduit la demande dans le langage CORBA.
+
+---
+
+# 2. Première ligne : `package`
+
+```java
+package CalculApp;
+```
+
+Cela signifie :
+
+> Cette classe appartient au package Java `CalculApp`.
+
+Donc si ton fichier est :
+
+```text
+src/
+└── CalculApp/
+    └── _CalculateurStub.java
+```
+
+Java comprend :
+
+```text
+package CalculApp;
+```
+
+et la classe devient :
+
+```java
+CalculApp._CalculateurStub
+```
+
+---
+
+# 3. La classe `_CalculateurStub`
+
+```java
+public class _CalculateurStub
+    extends org.omg.CORBA.portable.ObjectImpl
+    implements CalculApp.Calculateur
+```
+
+C'est probablement **la ligne la plus importante du fichier**.
+
+Découpons-la.
+
+---
+
+## `public class`
+
+```java
+public class _CalculateurStub
+```
+
+On crée une classe Java appelée :
+
+```text
+_CalculateurStub
+```
+
+Le `_` est une convention utilisée par le générateur `idlj`.
+
+Cette classe est **générée automatiquement**.
+
+Tu ne devrais normalement pas l'écrire à la main.
+
+---
+
+# 4. `extends ObjectImpl`
+
+```java
+extends org.omg.CORBA.portable.ObjectImpl
+```
+
+Cela signifie :
+
+```text
+_CalculateurStub
+       ↓
+ObjectImpl
+```
+
+Le Stub hérite du comportement CORBA nécessaire pour communiquer avec un objet distant.
+
+`ObjectImpl` appartient à :
+
+```text
+org.omg.CORBA.portable
+```
+
+et Java 8 fournit cette classe.
+
+---
+
+## Pourquoi `ObjectImpl` ?
+
+Parce que le Stub doit savoir notamment :
+
+* communiquer avec le mécanisme CORBA ;
+* posséder un `Delegate` ;
+* envoyer des requêtes ;
+* recevoir des réponses ;
+* identifier l'objet distant.
+
+C'est notamment grâce à cette hiérarchie que ton code peut utiliser :
+
+```java
+_request(...)
+```
+
+```java
+_invoke(...)
+```
+
+```java
+_releaseReply(...)
+```
+
+Ces méthodes ne sont pas définies directement dans `_CalculateurStub`.
+
+Elles viennent de la hiérarchie CORBA.
+
+---
+
+# 5. `implements Calculateur`
+
+```java
+implements CalculApp.Calculateur
+```
+
+Cela signifie que `_CalculateurStub` respecte l'interface :
+
+```java
+CalculApp.Calculateur
+```
+
+Ton interface ressemble probablement à :
+
+```java
+public interface Calculateur extends
+    org.omg.CORBA.Object,
+    CalculateurOperations,
+    org.omg.CORBA.portable.IDLEntity
+{
+}
+```
+
+Et `CalculateurOperations` contient probablement :
+
+```java
+public interface CalculateurOperations {
+
+    double ajouter(double a, double b);
+
+}
+```
+
+Donc :
+
+```text
+Calculateur
+     ↑
+     │ implements
+     │
+_CalculateurStub
+```
+
+Le client peut donc faire :
+
+```java
+Calculateur calculateur;
+```
+
+et l'objet réel peut être :
+
+```java
+_CalculateurStub
+```
+
+C'est extrêmement important.
+
+---
+
+# 6. Le cœur : `ajouter()`
+
+Maintenant arrivons à :
+
+```java
+public double ajouter(double a, double b)
+```
+
+C'est la méthode que **ton client croit appeler normalement**.
+
+Par exemple :
+
+```java
+double resultat = calculateur.ajouter(10, 5);
+```
+
+Mais le Stub va transformer cette opération en **requête CORBA**.
+
+---
+
+# 7. `$in`
+
+```java
+org.omg.CORBA.portable.InputStream $in = null;
+```
+
+On crée un flux d'entrée CORBA :
+
+```text
+InputStream
+```
+
+Son rôle :
+
+> recevoir les données venant du serveur.
+
+Attention à la direction :
+
+```text
+Client → Serveur
+       OutputStream
+
+Serveur → Client
+       InputStream
+```
+
+Donc ici :
+
+```java
+$in
+```
+
+servira à lire :
+
+```text
+résultat = 15
+```
+
+---
+
+# 8. `$request("ajouter", true)`
+
+Voici le cœur :
+
+```java
+org.omg.CORBA.portable.OutputStream $out =
+    _request("ajouter", true);
+```
+
+Découpons.
+
+```java
+_request(...)
+```
+
+demande au mécanisme CORBA :
+
+> Je veux préparer une requête distante.
+
+Et :
+
+```java
+"ajouter"
+```
+
+est le **nom de l'opération distante**.
+
+Donc CORBA sait :
+
+```text
+Opération demandée :
+"ajouter"
+```
+
+Le deuxième argument :
+
+```java
+true
+```
+
+indique que cette opération attend une réponse.
+
+On peut visualiser :
+
+```text
+_request("ajouter", true)
+
+       ↓
+
+Créer une requête CORBA
+
+Operation = "ajouter"
+Response expected = true
+```
+
+---
+
+# 9. `$out`
+
+```java
+OutputStream $out
+```
+
+C'est le flux dans lequel on va mettre les paramètres.
+
+On a :
+
+```java
+ajouter(10, 5)
+```
+
+Il faut donc envoyer :
+
+```text
+10
+5
+```
+
+au serveur.
+
+---
+
+# 10. `$out.write_double(a)`
+
+```java
+$out.write_double(a);
+```
+
+Supposons :
+
+```java
+a = 10;
+```
+
+CORBA transforme la valeur Java :
+
+```text
+double 10
+```
+
+en représentation utilisable dans le message CORBA.
+
+Conceptuellement :
+
+```text
+Java
+double a = 10
+       ↓
+CORBA marshalling
+       ↓
+données binaires
+       ↓
+réseau
+```
+
+Le terme important est :
+
+# Marshalling
+
+Le **marshalling** signifie :
+
+> transformer les données et paramètres d'un appel en une représentation pouvant être transportée.
+
+---
+
+# 11. `$out.write_double(b)`
+
+```java
+$out.write_double(b);
+```
+
+Même chose pour :
+
+```java
+b = 5
+```
+
+On obtient donc une requête contenant conceptuellement :
+
+```text
+Operation : ajouter
+
+Arguments :
+    double = 10
+    double = 5
+```
+
+---
+
+# 12. `_invoke($out)`
+
+Ensuite :
+
+```java
+$in = _invoke($out);
+```
+
+🔥 **C'est ici que la communication distante est réellement déclenchée.**
+
+Avant :
+
+```text
+_request()
+write_double()
+write_double()
+```
+
+on préparait simplement la requête.
+
+Avec :
+
+```java
+_invoke($out)
+```
+
+le Stub demande au mécanisme CORBA d'exécuter l'appel.
+
+Conceptuellement :
+
+```text
+Stub
+ │
+ │ _invoke()
+ ↓
+Delegate
+ │
+ ↓
+ORB
+ │
+ ↓
+IOR / objet distant
+ │
+ ↓
+connexion
+ │
+ ↓
+Serveur
+```
+
+---
+
+# 13. Que fait le serveur ?
+
+Le serveur reçoit quelque chose correspondant conceptuellement à :
+
+```text
+Operation = ajouter
+a = 10
+b = 5
+```
+
+Le système CORBA serveur trouve l'objet correspondant.
+
+Puis il finit par appeler ton implémentation :
+
+```java
+public double ajouter(double a, double b) {
+    return a + b;
+}
+```
+
+Donc :
+
+```text
+10 + 5
+   ↓
+15
+```
+
+---
+
+# 14. Le résultat revient
+
+Le serveur doit maintenant renvoyer :
+
+```text
+15
+```
+
+Le mécanisme CORBA serveur fait alors l'opération inverse :
+
+```text
+15
+ ↓
+marshalling
+ ↓
+réseau
+ ↓
+Client
+```
+
+C'est ce qu'on appelle souvent :
+
+# Unmarshalling
+
+Le client récupère le flux :
+
+```java
+$in
+```
+
+---
+
+# 15. `read_double()`
+
+Puis :
+
+```java
+double $result = $in.read_double();
+```
+
+Le Stub lit un `double` dans la réponse CORBA.
+
+Donc :
+
+```text
+Réponse réseau
+      ↓
+InputStream
+      ↓
+read_double()
+      ↓
+Java double
+```
+
+Résultat :
+
+```java
+$result = 15;
+```
+
+---
+
+# 16. `return $result`
+
+```java
+return $result;
+```
+
+Le Stub retourne :
+
+```text
+15
+```
+
+au programme client.
+
+Donc le client :
+
+```java
+double resultat = calculateur.ajouter(10, 5);
+```
+
+obtient :
+
+```text
+resultat = 15
+```
+
+Le client ne voit presque rien de toute la mécanique.
+
+---
+
+# 17. Visualisation complète de `ajouter()`
+
+Voilà ce que fait réellement :
+
+```java
+calculateur.ajouter(10, 5);
+```
+
+```text
+┌──────────────── CLIENT ────────────────┐
+│                                        │
+│ calculateur.ajouter(10, 5)             │
+│              │                         │
+│              ▼                         │
+│      _CalculateurStub                  │
+│              │                         │
+│              │ _request("ajouter")     │
+│              ▼                         │
+│        OutputStream                    │
+│              │                         │
+│              ├── write_double(10)      │
+│              └── write_double(5)       │
+│              │                         │
+│              ▼                         │
+│          _invoke()                     │
+└──────────────┼─────────────────────────┘
+               │
+               │ CORBA
+               │ réseau
+               ▼
+┌──────────── SERVEUR ──────────────────┐
+│                                       │
+│ ORB                                   │
+│  │                                    │
+│  ▼                                    │
+│ Objet distant                         │
+│  │                                    │
+│  ▼                                    │
+│ ajouter(10, 5)                        │
+│  │                                    │
+│  ▼                                    │
+│ 15                                    │
+│                                       │
+└──────────────┬────────────────────────┘
+               │
+               │ réponse CORBA
+               ▼
+┌──────────────── CLIENT ────────────────┐
+│                                       │
+│ InputStream                           │
+│       │                               │
+│       ▼                               │
+│ read_double()                         │
+│       │                               │
+│       ▼                               │
+│ $result = 15                          │
+│       │                               │
+│       ▼                               │
+│ return 15                             │
+└───────────────────────────────────────┘
+```
+
+---
+
+# 18. Le `catch ApplicationException`
+
+Tu as :
+
+```java
+} catch (org.omg.CORBA.portable.ApplicationException $ex) {
+```
+
+Une `ApplicationException` correspond à une exception applicative transportée par CORBA.
+
+Par exemple, si ton IDL définissait :
+
+```idl
+double ajouter(double a, double b)
+    raises (CalculException);
+```
+
+le serveur pourrait retourner une exception définie par l'application.
+
+Le Stub doit donc savoir :
+
+```text
+réponse normale
+        OU
+exception distante
+```
+
+---
+
+# 19. `$ex.getInputStream()`
+
+```java
+$in = $ex.getInputStream();
+```
+
+L'exception CORBA peut contenir des informations dans un flux.
+
+On récupère donc :
+
+```text
+Exception
+    ↓
+InputStream
+```
+
+---
+
+# 20. `$ex.getId()`
+
+```java
+String _id = $ex.getId();
+```
+
+Cela récupère l'identifiant de l'exception.
+
+Conceptuellement :
+
+```text
+Exception ID
+    ↓
+"IDL:CalculApp/..."
+```
+
+---
+
+# 21. `MARSHAL`
+
+```java
+throw new org.omg.CORBA.MARSHAL(_id);
+```
+
+Ici le code généré transforme le problème en exception CORBA `MARSHAL`.
+
+`MARSHAL` concerne notamment des problèmes liés à la représentation/transmission des données CORBA.
+
+---
+
+# 22. `RemarshalException`
+
+Deuxième `catch` :
+
+```java
+} catch (org.omg.CORBA.portable.RemarshalException $rm) {
+    return ajouter(a, b);
+}
+```
+
+Cela signifie en gros :
+
+> CORBA demande de refaire l'appel.
+
+Donc :
+
+```java
+return ajouter(a, b);
+```
+
+refait la requête.
+
+C'est une logique interne de CORBA générée automatiquement.
+
+---
+
+# 23. `finally`
+
+```java
+finally {
+    _releaseReply($in);
+}
+```
+
+Très important :
+
+> on libère les ressources associées à la réponse CORBA.
+
+Même s'il y a une exception :
+
+```text
+try
+ │
+ ├── succès
+ │
+ └── exception
+       │
+       ▼
+finally
+       │
+       ▼
+_releaseReply()
+```
+
+Le `finally` garantit le nettoyage.
+
+---
+
+# 24. Maintenant : `__ids`
+
+Tu as :
+
+```java
+private static String[] __ids = {
+    "IDL:CalculApp/Calculateur:1.0"
+};
+```
+
+Ça, c'est **l'identité CORBA de l'interface**.
+
+Cette chaîne :
+
+```text
+IDL:CalculApp/Calculateur:1.0
+```
+
+s'appelle un **Repository ID**.
+
+Il permet d'identifier l'interface CORBA.
+
+Tu peux le lire comme :
+
+```text
+IDL
+│
+├── module : CalculApp
+├── interface : Calculateur
+└── version : 1.0
+```
+
+Donc :
+
+```text
+IDL:CalculApp/Calculateur:1.0
+```
+
+---
+
+# 25. `_ids()`
+
+```java
+public String[] _ids()
+{
+    return (String[])__ids.clone();
+}
+```
+
+CORBA peut demander au Stub :
+
+> Quels types d'interfaces CORBA cet objet représente-t-il ?
+
+Le Stub répond :
+
+```text
+IDL:CalculApp/Calculateur:1.0
+```
+
+Pourquoi :
+
+```java
+.clone()
+```
+
+?
+
+Pour retourner une copie du tableau plutôt que permettre au code extérieur de modifier directement :
+
+```java
+__ids
+```
+
+---
+
+# 26. `readObject()`
+
+Maintenant une partie plus avancée :
+
+```java
+private void readObject(
+    java.io.ObjectInputStream s
+)
+throws java.io.IOException
+```
+
+C'est lié à la **sérialisation Java**.
+
+Quand un Stub est désérialisé, Java doit reconstruire sa référence vers l'objet CORBA distant.
+
+---
+
+# 27. `readUTF()`
+
+```java
+String str = s.readUTF();
+```
+
+On lit une chaîne précédemment sauvegardée.
+
+Cette chaîne représente une référence CORBA sous forme textuelle.
+
+Conceptuellement :
+
+```text
+Objet CORBA
+     ↓
+IOR
+     ↓
+String
+```
+
+---
+
+# 28. `IOR`
+
+Tu vas beaucoup entendre parler de :
+
+# IOR — Interoperable Object Reference
+
+C'est une représentation d'une **référence vers un objet CORBA distant**.
+
+Elle peut contenir notamment des informations permettant de retrouver l'objet :
+
+```text
+IOR
+ │
+ ├── type
+ ├── identifiant
+ ├── profil
+ ├── protocole
+ └── informations de localisation
+```
+
+L'IOR n'est donc pas simplement :
+
+```text
+localhost:1234
+```
+
+C'est une structure CORBA beaucoup plus complète.
+
+---
+
+# 29. `IORCheckImpl`
+
+Tu as :
+
+```java
+com.sun.corba.se.impl.orbutil.IORCheckImpl.check(
+    str,
+    "CalculApp._CalculateurStub"
+);
+```
+
+Cette classe appartient à l'implémentation interne CORBA de Java.
+
+C'est justement pourquoi tu avais :
+
+```text
+warning:
+IORCheckImpl is internal proprietary API
+```
+
+Ce n'est pas une erreur.
+
+Java te dit simplement :
+
+> Attention, cette classe appartient aux mécanismes internes de l'implémentation.
+
+Et ton fichier a été généré automatiquement.
+
+---
+
+# 30. Création de l'ORB
+
+Ensuite :
+
+```java
+String[] args = null;
+java.util.Properties props = null;
+
+org.omg.CORBA.ORB orb =
+    org.omg.CORBA.ORB.init(args, props);
+```
+
+🔥 Là, tu rencontres un élément fondamental de CORBA :
+
+# ORB
+
+**Object Request Broker**
+
+On peut traduire grossièrement :
+
+> courtier/intermédiaire de requêtes d'objets.
+
+Son rôle est de faire le lien entre :
+
+```text
+Client
+  ↕
+ORB
+  ↕
+Serveur
+```
+
+Il s'occupe notamment du mécanisme de communication avec les objets CORBA.
+
+---
+
+# 31. Pourquoi `ORB.init()` ?
+
+```java
+ORB.init(...)
+```
+
+initialise l'environnement ORB.
+
+Conceptuellement :
+
+```text
+Application
+    ↓
+ORB.init()
+    ↓
+ORB prêt
+```
+
+Ensuite tu peux lui demander :
+
+```java
+string_to_object()
+```
+
+ou :
+
+```java
+object_to_string()
+```
+
+---
+
+# 32. `string_to_object`
+
+```java
+org.omg.CORBA.Object obj =
+    orb.string_to_object(str);
+```
+
+Ici :
+
+```text
+String
+ ↓
+IOR représentée sous forme texte
+ ↓
+CORBA Object
+```
+
+On reconstruit donc une référence CORBA.
+
+---
+
+# 33. `ObjectImpl`
+
+Puis :
+
+```java
+org.omg.CORBA.portable.Delegate delegate =
+    ((org.omg.CORBA.portable.ObjectImpl) obj)._get_delegate();
+```
+
+C'est une partie très intéressante.
+
+Le `Delegate` est en quelque sorte le composant qui permet à l'objet CORBA local de **déléguer les opérations de communication** au mécanisme CORBA.
+
+Conceptuellement :
+
+```text
+_CalculateurStub
+      │
+      ▼
+  Delegate
+      │
+      ▼
+     ORB
+      │
+      ▼
+ réseau / objet distant
+```
+
+Donc :
+
+```java
+_get_delegate()
+```
+
+récupère le mécanisme de délégation associé à la référence CORBA.
+
+---
+
+# 34. `_set_delegate`
+
+Ensuite :
+
+```java
+_set_delegate(delegate);
+```
+
+On donne au Stub son `Delegate`.
+
+Donc le Stub apprend :
+
+> « Voici le mécanisme qui me permettra de parler avec l'objet distant. »
+
+Après cela :
+
+```text
+_CalculateurStub
+       │
+       └── Delegate
+              │
+              └── ORB
+```
+
+Le Stub est prêt à fonctionner comme proxy de l'objet distant.
+
+---
+
+# 35. `orb.destroy()`
+
+Enfin :
+
+```java
+orb.destroy();
+```
+
+On détruit/libère l'ORB créé localement.
+
+Pourquoi ?
+
+Parce qu'on n'en a plus besoin après avoir récupéré le `Delegate`.
+
+---
+
+# 36. `writeObject()`
+
+Dernière grosse partie :
+
+```java
+private void writeObject(
+    java.io.ObjectOutputStream s
+)
+throws java.io.IOException
+```
+
+C'est l'opération inverse de :
+
+```java
+readObject()
+```
+
+Ici on veut **sérialiser le Stub**.
+
+---
+
+# 37. `object_to_string`
+
+```java
+String str = orb.object_to_string(this);
+```
+
+On transforme :
+
+```text
+Stub / objet CORBA
+       ↓
+      IOR
+       ↓
+String
+```
+
+Donc :
+
+```java
+object_to_string()
+```
+
+fait l'inverse conceptuel de :
+
+```java
+string_to_object()
+```
+
+Tu peux retenir :
+
+```text
+object_to_string()
+        ↓
+Objet CORBA → chaîne
+
+string_to_object()
+        ↓
+Chaîne → Objet CORBA
+```
+
+---
+
+# 38. `writeUTF`
+
+```java
+s.writeUTF(str);
+```
+
+On sauvegarde la représentation textuelle de la référence.
+
+Donc :
+
+```text
+Stub
+ ↓
+IOR
+ ↓
+String
+ ↓
+writeUTF()
+ ↓
+fichier/flux Java
+```
+
+---
+
+# 39. Toute la classe en une seule image
+
+Maintenant, regarde ton fichier autrement.
+
+```text
+                 CLIENT
+                   │
+                   │
+                   │ calculateur.ajouter(10,5)
+                   ▼
+          ┌─────────────────┐
+          │ _CalculateurStub│
+          └────────┬────────┘
+                   │
+                   │ _request("ajouter")
+                   ▼
+          ┌─────────────────┐
+          │  OutputStream   │
+          └────────┬────────┘
+                   │
+                   ├── write_double(10)
+                   ├── write_double(5)
+                   │
+                   ▼
+              _invoke()
+                   │
+                   ▼
+                Delegate
+                   │
+                   ▼
+                  ORB
+                   │
+                   │ CORBA
+                   │ réseau
+                   ▼
+          ┌─────────────────┐
+          │      ORB        │
+          │     serveur     │
+          └────────┬────────┘
+                   │
+                   ▼
+          CalculateurImpl
+                   │
+                   │ ajouter(10,5)
+                   ▼
+                  15
+                   │
+                   ▼
+             OutputStream
+                   │
+                   │ réseau
+                   ▼
+              InputStream
+                   │
+                   ▼
+              read_double()
+                   │
+                   ▼
+                15.0
+                   │
+                   ▼
+          _CalculateurStub
+                   │
+                   ▼
+             return 15
+                   │
+                   ▼
+                CLIENT
+```
+
+---
+
+# 40. Le point le plus important à retenir
+
+Ne mémorise pas le fichier `_CalculateurStub.java` ligne par ligne comme une poésie. 😄
+
+Comprends **5 rôles** :
+
+| Élément            | Rôle                              |
+| ------------------ | --------------------------------- |
+| `Calculateur`      | Contrat/interface                 |
+| `_CalculateurStub` | Proxy côté client                 |
+| `ORB`              | Intermédiaire CORBA               |
+| `Delegate`         | Relais interne du Stub vers CORBA |
+| `CalculateurImpl`  | Vrai objet qui exécute le calcul  |
+
+Et pour un appel :
+
+```java
+calculateur.ajouter(10, 5);
+```
+
+retenir :
+
+```text
+1. REQUEST
+      ↓
+2. MARSHAL
+      ↓
+3. INVOKE
+      ↓
+4. NETWORK
+      ↓
+5. UNMARSHAL
+      ↓
+6. RETURN
+```
+
+Plus concrètement :
+
+```text
+ajouter(10,5)
+      ↓
+_request("ajouter")
+      ↓
+write_double(10)
+write_double(5)
+      ↓
+_invoke()
+      ↓
+Serveur
+      ↓
+ajouter(10,5)
+      ↓
+15
+      ↓
+read_double()
+      ↓
+return 15
+```
+
+### Une phrase pour retenir CORBA
+
+> **Le client croit appeler un objet local ; le Stub transforme cet appel en requête distante, l'ORB la transporte, et le serveur exécute réellement la méthode.**
+
+Et ton `_CalculateurStub.java` est précisément **la pièce qui cache cette complexité au programme client**.
+
+
+
+==================================================
+FICHIER : ./documentation/java/resume-classes.md
+==================================================
+Oui. Pour ton **TP CORBA**, voici le résumé à retenir. L'objectif est de savoir **quoi fait chaque classe, pourquoi elle existe et de quel côté elle travaille**.
+
+## 🧠 Vue d'ensemble
+
+À partir de :
+
+```text
+Calculateur.idl
+```
+
+`idlj` génère plusieurs classes/interfaces Java :
+
+```text
+                 Calculateur.idl
+                       │
+                      idlj
+                       │
+       ┌───────────────┼────────────────┐
+       ↓               ↓                ↓
+  Interface          Helper            Stub
+       │                                │
+       │                                │
+       ↓                                ↓
+    Serveur                         Client
+       │
+       ↓
+     POA
+```
+
+---
+
+# 1. `Calculateur.java`
+
+### QUOI ?
+
+C'est **l'interface CORBA principale**.
+
+Elle représente le contrat que le client et le serveur doivent respecter.
+
+Par exemple :
+
+```java
+public interface Calculateur {
+    double ajouter(double a, double b);
+}
+```
+
+### POURQUOI ?
+
+Pour définir :
+
+> **Quelles opérations sont disponibles à distance ?**
+
+Le client sait :
+
+```text
+Calculateur
+   └── ajouter()
+```
+
+mais ne connaît pas nécessairement l'implémentation.
+
+### À retenir
+
+```text
+Calculateur.java
+        ↓
+     CONTRAT
+```
+
+---
+
+# 2. `CalculateurOperations.java`
+
+### QUOI ?
+
+C'est l'interface qui contient réellement les signatures des opérations :
+
+```java
+double ajouter(double a, double b);
+```
+
+### POURQUOI ?
+
+CORBA sépare le **contrat métier** des mécanismes techniques nécessaires à l'objet CORBA.
+
+Donc :
+
+```text
+CalculateurOperations
+        ↓
+opérations métier
+```
+
+### À retenir
+
+> **Operations = quelles méthodes existent ?**
+
+---
+
+# 3. `_CalculateurStub.java`
+
+### QUOI ?
+
+C'est le **proxy côté client**.
+
+Il représente localement l'objet distant.
+
+### POURQUOI ?
+
+Pour permettre au client d'écrire simplement :
+
+```java
+calculateur.ajouter(10, 5);
+```
+
+alors qu'en réalité le Stub fait :
+
+```text
+ajouter()
+ ↓
+_request()
+ ↓
+write_double()
+ ↓
+_invoke()
+ ↓
+ORB
+ ↓
+réseau
+ ↓
+serveur
+```
+
+### À retenir
+
+> **Stub = représentant local de l'objet distant.**
+
+---
+
+# 4. `CalculateurHelper.java`
+
+### QUOI ?
+
+C'est la **boîte à outils CORBA** pour `Calculateur`.
+
+Elle contient notamment :
+
+```java
+narrow()
+read()
+write()
+insert()
+extract()
+type()
+id()
+```
+
+### POURQUOI ?
+
+Pour manipuler correctement les références CORBA.
+
+Par exemple :
+
+```java
+Calculateur c =
+    CalculateurHelper.narrow(obj);
+```
+
+transforme une référence CORBA générique en référence `Calculateur`.
+
+### À retenir
+
+> **Helper = conversion + outils CORBA.**
+
+---
+
+# 5. `CalculateurHolder.java`
+
+### QUOI ?
+
+C'est une classe générée utilisée pour **transporter certaines valeurs CORBA**, notamment les paramètres `out` et `inout`.
+
+Par exemple, si ton IDL contient :
+
+```idl
+void calcul(in double a, out double resultat);
+```
+
+CORBA doit pouvoir transporter :
+
+```text
+a
+↓
+serveur
+↓
+resultat
+↓
+client
+```
+
+Le `Holder` sert à cela.
+
+### POURQUOI ?
+
+Parce que Java ne possède pas directement le même mécanisme que les paramètres CORBA :
+
+```text
+in
+out
+inout
+```
+
+### À retenir
+
+> **Holder = conteneur pour transporter des paramètres CORBA, surtout `out`/`inout`.**
+
+Si ton TP n'utilise que :
+
+```idl
+in double a
+```
+
+tu verras peut-être peu son utilité.
+
+---
+
+# 6. `CalculateurPOA.java`
+
+🔥 **Très important côté serveur.**
+
+### QUOI ?
+
+C'est le **squelette CORBA côté serveur**.
+
+POA signifie :
+
+> **Portable Object Adapter**
+
+Il fait le lien entre :
+
+```text
+CORBA
+```
+
+et :
+
+```text
+ton objet Java réel
+```
+
+### POURQUOI ?
+
+Quand une requête arrive :
+
+```text
+Client
+  ↓
+ORB
+  ↓
+POA
+  ↓
+CalculateurImpl
+```
+
+Le POA aide CORBA à trouver et appeler ton implémentation.
+
+### À retenir
+
+> **POA = pont entre CORBA et l'implémentation serveur.**
+
+---
+
+# 7. `CalculateurImpl.java`
+
+### QUOI ?
+
+C'est **ta vraie classe métier**.
+
+Par exemple :
+
+```java
+public class CalculateurImpl
+        extends CalculateurPOA {
+
+    public double ajouter(double a, double b) {
+        return a + b;
+    }
+}
+```
+
+### POURQUOI ?
+
+Parce que c'est ici que tu écris le **vrai comportement de l'application**.
+
+CORBA ne fait pas :
+
+```text
+10 + 5
+```
+
+à ta place.
+
+CORBA transporte la demande.
+
+C'est `CalculateurImpl` qui fait réellement :
+
+```java
+return a + b;
+```
+
+### À retenir
+
+> **Impl = le vrai code métier du serveur.**
+
+---
+
+# 8. `Serveur.java`
+
+### QUOI ?
+
+C'est le programme qui démarre le serveur CORBA.
+
+Il initialise généralement :
+
+```java
+ORB
+```
+
+puis :
+
+```java
+POA
+```
+
+puis crée :
+
+```java
+CalculateurImpl
+```
+
+et publie l'objet.
+
+### POURQUOI ?
+
+Pour rendre ton objet accessible aux clients.
+
+Schématiquement :
+
+```text
+Serveur.java
+    │
+    ├── démarre ORB
+    │
+    ├── récupère POA
+    │
+    ├── crée CalculateurImpl
+    │
+    ├── enregistre l'objet
+    │
+    └── attend les requêtes
+```
+
+### À retenir
+
+> **Serveur = démarre et publie l'objet CORBA.**
+
+---
+
+# 9. `Client.java`
+
+### QUOI ?
+
+C'est le programme qui utilise le service CORBA.
+
+Il récupère une référence vers :
+
+```text
+Calculateur
+```
+
+puis appelle :
+
+```java
+calculateur.ajouter(10, 5);
+```
+
+### POURQUOI ?
+
+Pour consommer le service distant.
+
+Le client ne crée pas directement :
+
+```java
+new CalculateurImpl();
+```
+
+Sinon ce serait un objet local.
+
+Il obtient plutôt :
+
+```text
+référence distante
+       ↓
+Stub
+```
+
+### À retenir
+
+> **Client = demande le service distant.**
+
+---
+
+# 10. `ORB`
+
+Ce n'est pas forcément une classe de ton dossier, mais c'est essentiel.
+
+### QUOI ?
+
+```text
+Object Request Broker
+```
+
+### POURQUOI ?
+
+Il assure le mécanisme de communication entre :
+
+```text
+Client ↔ Serveur
+```
+
+Il participe à :
+
+* localisation des objets ;
+* transmission des requêtes ;
+* transmission des réponses ;
+* marshalling ;
+* unmarshalling.
+
+### À retenir
+
+> **ORB = infrastructure de communication CORBA.**
+
+---
+
+# 11. `Delegate`
+
+Encore un élément interne.
+
+### QUOI ?
+
+Le `Delegate` est le mécanisme auquel le Stub délègue les opérations CORBA.
+
+### POURQUOI ?
+
+Pour permettre au Stub de communiquer avec l'objet distant.
+
+```text
+Stub
+ ↓
+Delegate
+ ↓
+ORB
+ ↓
+réseau
+```
+
+### À retenir
+
+> **Delegate = relais interne du Stub vers CORBA.**
+
+---
+
+# 12. Résumé ultra-simple
+
+Voici la fiche que je te conseille de mémoriser :
+
+| Classe                  | QUOI ?            | POURQUOI ?                         |
+| ----------------------- | ----------------- | ---------------------------------- |
+| `Calculateur`           | Interface CORBA   | Définir le contrat                 |
+| `CalculateurOperations` | Opérations        | Définir les méthodes               |
+| `_CalculateurStub`      | Proxy client      | Appeler le serveur                 |
+| `CalculateurHelper`     | Outils CORBA      | Convertir/manipuler les références |
+| `CalculateurHolder`     | Conteneur         | Transporter `out` / `inout`        |
+| `CalculateurPOA`        | Squelette serveur | Relier CORBA au serveur            |
+| `CalculateurImpl`       | Implémentation    | Faire réellement le calcul         |
+| `Client`                | Programme client  | Demander le service                |
+| `Serveur`               | Programme serveur | Publier le service                 |
+| `ORB`                   | Intermédiaire     | Faire communiquer client/serveur   |
+| `Delegate`              | Relais interne    | Relier Stub ↔ ORB                  |
+
+---
+
+# 13. Le schéma à apprendre
+
+Si tu dois retenir **un seul schéma pour ton examen**, prends celui-ci :
+
+```text
+                  Calculateur.idl
+                        │
+                       idlj
+                        │
+        ┌───────────────┼────────────────┐
+        │               │                │
+        ▼               ▼                ▼
+ Calculateur        Helper             Stub
+ Interface                             Client
+        │                                │
+        │                                │
+        ▼                                ▼
+ CalculateurPOA                     Delegate
+        │                                │
+        ▼                                ▼
+ CalculateurImpl                       ORB
+        │                                │
+        │                                │
+        └──────────── Serveur ───────────┤
+                                         │
+                                      Réseau
+                                         │
+                                         ▼
+                                       ORB
+                                         │
+                                         ▼
+                                       Client
+```
+
+Et surtout :
+
+```text
+CLIENT
+  │
+  │ calculateur.ajouter(10,5)
+  ▼
+STUB
+  │
+  ▼
+DELEGATE
+  │
+  ▼
+ORB
+  │
+  │ réseau
+  ▼
+ORB
+  │
+  ▼
+POA
+  │
+  ▼
+CalculateurImpl
+  │
+  ▼
+10 + 5 = 15
+```
+
+### La phrase à retenir
+
+> **IDL définit le contrat, le Stub représente l'objet distant côté client, le Helper manipule les références, le POA fait le lien côté serveur, l'Implémentation exécute le métier, et l'ORB transporte la requête.**
+
+C'est pratiquement **la carte mentale complète de CORBA**.
+
+
+
+==================================================
+FICHIER : ./execute-Client-Serveur.sh
+==================================================
+#!/bin/bash
+#nettoyage au prealable
+killall orbd 2>/dev/null
+# 1. Compilation des sources Java
+/usr/lib/jvm/java-8-openjdk-amd64/bin/javac -d bin $(find src -name "*.java")
+
+# 2. Lancement du service de noms en arrière-plan (&) + temps de démarrage
+orbd -ORBInitialPort 1050 &
+sleep 2
+
+# 3. Lancement du Serveur en arrière-plan (&) + temps d'initialisation
+/usr/lib/jvm/java-8-openjdk-amd64/bin/java -cp bin Serveur -ORBInitialPort 1050 -ORBInitialHost localhost &
+sleep 2
+
+# 4. Lancement du Client (avec -cp bin pour charger les classes)
+/usr/lib/jvm/java-8-openjdk-amd64/bin/java -cp bin Client -ORBInitialHost localhost -ORBInitialPort 1050
+
+
+==================================================
+FICHIER : ./execute.sh
+==================================================
+
+/usr/lib/jvm/java-8-openjdk-amd64/bin/javac -d bin $(find src -name "*.java")
+/usr/lib/jvm/java-8-openjdk-amd64/bin/java -cp bin Serveur
+
+
+
+==================================================
+FICHIER : ./src/CalculApp/CalculateurHelper.java
+==================================================
+package CalculApp;
+
+
+/**
+* CalculApp/CalculateurHelper.java .
+* Generated by the IDL-to-Java compiler (portable), version "3.2"
+* from Calculateur.idl
+* vendredi 25 septembre 2026 09 h 14 EAT
+*/
+
+
+// definit les methodes accessibles a distance
+abstract public class CalculateurHelper
+{
+  private static String  _id = "IDL:CalculApp/Calculateur:1.0";
+
+  public static void insert (org.omg.CORBA.Any a, CalculApp.Calculateur that)
+  {
+    org.omg.CORBA.portable.OutputStream out = a.create_output_stream ();
+    a.type (type ());
+    write (out, that);
+    a.read_value (out.create_input_stream (), type ());
+  }
+
+  public static CalculApp.Calculateur extract (org.omg.CORBA.Any a)
+  {
+    return read (a.create_input_stream ());
+  }
+
+  private static org.omg.CORBA.TypeCode __typeCode = null;
+  synchronized public static org.omg.CORBA.TypeCode type ()
+  {
+    if (__typeCode == null)
+    {
+      __typeCode = org.omg.CORBA.ORB.init ().create_interface_tc (CalculApp.CalculateurHelper.id (), "Calculateur");
+    }
+    return __typeCode;
+  }
+
+  public static String id ()
+  {
+    return _id;
+  }
+
+  public static CalculApp.Calculateur read (org.omg.CORBA.portable.InputStream istream)
+  {
+    return narrow (istream.read_Object (_CalculateurStub.class));
+  }
+
+  public static void write (org.omg.CORBA.portable.OutputStream ostream, CalculApp.Calculateur value)
+  {
+    ostream.write_Object ((org.omg.CORBA.Object) value);
+  }
+
+  public static CalculApp.Calculateur narrow (org.omg.CORBA.Object obj)
+  {
+    if (obj == null)
+      return null;
+    else if (obj instanceof CalculApp.Calculateur)
+      return (CalculApp.Calculateur)obj;
+    else if (!obj._is_a (id ()))
+      throw new org.omg.CORBA.BAD_PARAM ();
+    else
+    {
+      org.omg.CORBA.portable.Delegate delegate = ((org.omg.CORBA.portable.ObjectImpl)obj)._get_delegate ();
+      CalculApp._CalculateurStub stub = new CalculApp._CalculateurStub ();
+      stub._set_delegate(delegate);
+      return stub;
+    }
+  }
+
+  public static CalculApp.Calculateur unchecked_narrow (org.omg.CORBA.Object obj)
+  {
+    if (obj == null)
+      return null;
+    else if (obj instanceof CalculApp.Calculateur)
+      return (CalculApp.Calculateur)obj;
+    else
+    {
+      org.omg.CORBA.portable.Delegate delegate = ((org.omg.CORBA.portable.ObjectImpl)obj)._get_delegate ();
+      CalculApp._CalculateurStub stub = new CalculApp._CalculateurStub ();
+      stub._set_delegate(delegate);
+      return stub;
+    }
+  }
+
+}
+
+
+
+==================================================
+FICHIER : ./src/CalculApp/CalculateurHolder.java
+==================================================
+package CalculApp;
+
+/**
+* CalculApp/CalculateurHolder.java .
+* Generated by the IDL-to-Java compiler (portable), version "3.2"
+* from Calculateur.idl
+* vendredi 25 septembre 2026 09 h 14 EAT
+*/
+
+
+// definit les methodes accessibles a distance
+public final class CalculateurHolder implements org.omg.CORBA.portable.Streamable
+{
+  public CalculApp.Calculateur value = null;
+
+  public CalculateurHolder ()
+  {
+  }
+
+  public CalculateurHolder (CalculApp.Calculateur initialValue)
+  {
+    value = initialValue;
+  }
+
+  public void _read (org.omg.CORBA.portable.InputStream i)
+  {
+    value = CalculApp.CalculateurHelper.read (i);
+  }
+
+  public void _write (org.omg.CORBA.portable.OutputStream o)
+  {
+    CalculApp.CalculateurHelper.write (o, value);
+  }
+
+  public org.omg.CORBA.TypeCode _type ()
+  {
+    return CalculApp.CalculateurHelper.type ();
+  }
+
+}
+
+
+
+==================================================
+FICHIER : ./src/CalculApp/CalculateurImpl.java
+==================================================
+package CalculApp;
+
+public class CalculateurImpl extends  CalculateurPOA
+{
+    @Override 
+    public double ajouter(double a,double b)
+    {
+        return a+b;
+    }
+    
+}
+
+
+
+==================================================
+FICHIER : ./src/CalculApp/Calculateur.java
+==================================================
+package CalculApp;
+
+
+/**
+* CalculApp/Calculateur.java .
+* Generated by the IDL-to-Java compiler (portable), version "3.2"
+* from Calculateur.idl
+* vendredi 25 septembre 2026 09 h 14 EAT
+*/
+
+
+// definit les methodes accessibles a distance
+public interface Calculateur extends CalculateurOperations, org.omg.CORBA.Object, org.omg.CORBA.portable.IDLEntity 
+{
+} // interface Calculateur
+
+
+
+==================================================
+FICHIER : ./src/CalculApp/CalculateurOperations.java
+==================================================
+package CalculApp;
+
+
+/**
+* CalculApp/CalculateurOperations.java .
+* Generated by the IDL-to-Java compiler (portable), version "3.2"
+* from Calculateur.idl
+* vendredi 25 septembre 2026 09 h 14 EAT
+*/
+
+
+// definit les methodes accessibles a distance
+public interface CalculateurOperations 
+{
+
+  // in indique que les parametres sont envoyes en entree vers le serveur
+  double ajouter (double a, double b);
+} // interface CalculateurOperations
+
+
+
+==================================================
+FICHIER : ./src/CalculApp/CalculateurPOA.java
+==================================================
+package CalculApp;
+
+
+/**
+* CalculApp/CalculateurPOA.java .
+* Generated by the IDL-to-Java compiler (portable), version "3.2"
+* from Calculateur.idl
+* vendredi 25 septembre 2026 09 h 14 EAT
+*/
+
+
+// definit les methodes accessibles a distance
+public abstract class CalculateurPOA extends org.omg.PortableServer.Servant
+ implements CalculApp.CalculateurOperations, org.omg.CORBA.portable.InvokeHandler
+{
+
+  // Constructors
+
+  private static java.util.Hashtable _methods = new java.util.Hashtable ();
+  static
+  {
+    _methods.put ("ajouter", new java.lang.Integer (0));
+  }
+
+  public org.omg.CORBA.portable.OutputStream _invoke (String $method,
+                                org.omg.CORBA.portable.InputStream in,
+                                org.omg.CORBA.portable.ResponseHandler $rh)
+  {
+    org.omg.CORBA.portable.OutputStream out = null;
+    java.lang.Integer __method = (java.lang.Integer)_methods.get ($method);
+    if (__method == null)
+      throw new org.omg.CORBA.BAD_OPERATION (0, org.omg.CORBA.CompletionStatus.COMPLETED_MAYBE);
+
+    switch (__method.intValue ())
+    {
+
+  // in indique que les parametres sont envoyes en entree vers le serveur
+       case 0:  // CalculApp/Calculateur/ajouter
+       {
+         double a = in.read_double ();
+         double b = in.read_double ();
+         double $result = (double)0;
+         $result = this.ajouter (a, b);
+         out = $rh.createReply();
+         out.write_double ($result);
+         break;
+       }
+
+       default:
+         throw new org.omg.CORBA.BAD_OPERATION (0, org.omg.CORBA.CompletionStatus.COMPLETED_MAYBE);
+    }
+
+    return out;
+  } // _invoke
+
+  // Type-specific CORBA::Object operations
+  private static String[] __ids = {
+    "IDL:CalculApp/Calculateur:1.0"};
+
+  public String[] _all_interfaces (org.omg.PortableServer.POA poa, byte[] objectId)
+  {
+    return (String[])__ids.clone ();
+  }
+
+  public Calculateur _this() 
+  {
+    return CalculateurHelper.narrow(
+    super._this_object());
+  }
+
+  public Calculateur _this(org.omg.CORBA.ORB orb) 
+  {
+    return CalculateurHelper.narrow(
+    super._this_object(orb));
+  }
+
+
+} // class CalculateurPOA
+
+
+
+==================================================
+FICHIER : ./src/CalculApp/_CalculateurStub.java
+==================================================
+package CalculApp;
+
+
+/**
+* CalculApp/_CalculateurStub.java .
+* Generated by the IDL-to-Java compiler (portable), version "3.2"
+* from Calculateur.idl
+* vendredi 25 septembre 2026 09 h 14 EAT
+*/
+
+
+// definit les methodes accessibles a distance
+public class _CalculateurStub extends org.omg.CORBA.portable.ObjectImpl implements CalculApp.Calculateur
+{
+
+
+  // in indique que les parametres sont envoyes en entree vers le serveur
+  public double ajouter (double a, double b)
+  {
+            org.omg.CORBA.portable.InputStream $in = null;
+            try {
+                org.omg.CORBA.portable.OutputStream $out = _request ("ajouter", true);
+                $out.write_double (a);
+                $out.write_double (b);
+                $in = _invoke ($out);
+                double $result = $in.read_double ();
+                return $result;
+            } catch (org.omg.CORBA.portable.ApplicationException $ex) {
+                $in = $ex.getInputStream ();
+                String _id = $ex.getId ();
+                throw new org.omg.CORBA.MARSHAL (_id);
+            } catch (org.omg.CORBA.portable.RemarshalException $rm) {
+                return ajouter (a, b        );
+            } finally {
+                _releaseReply ($in);
+            }
+  } // ajouter
+
+  // Type-specific CORBA::Object operations
+  private static String[] __ids = {
+    "IDL:CalculApp/Calculateur:1.0"};
+
+  public String[] _ids ()
+  {
+    return (String[])__ids.clone ();
+  }
+
+  private void readObject (java.io.ObjectInputStream s) throws java.io.IOException
+  {
+     String str = s.readUTF ();
+     com.sun.corba.se.impl.orbutil.IORCheckImpl.check(str, "CalculApp._CalculateurStub");
+     String[] args = null;
+     java.util.Properties props = null;
+     org.omg.CORBA.ORB orb = org.omg.CORBA.ORB.init (args, props);
+   try {
+     org.omg.CORBA.Object obj = orb.string_to_object (str);
+     org.omg.CORBA.portable.Delegate delegate = ((org.omg.CORBA.portable.ObjectImpl) obj)._get_delegate ();
+     _set_delegate (delegate);
+   } finally {
+     orb.destroy() ;
+   }
+  }
+
+  private void writeObject (java.io.ObjectOutputStream s) throws java.io.IOException
+  {
+     String[] args = null;
+     java.util.Properties props = null;
+     org.omg.CORBA.ORB orb = org.omg.CORBA.ORB.init (args, props);
+   try {
+     String str = orb.object_to_string (this);
+     s.writeUTF (str);
+   } finally {
+     orb.destroy() ;
+   }
+  }
+} // class _CalculateurStub
+
+
+
+==================================================
+FICHIER : ./src/Calculateur.idl
+==================================================
+// module = package = CalculApp
+module CalculApp 
+{
+    // definit les methodes accessibles a distance  
+    interface Calculateur
+    {
+        // in indique que les parametres sont envoyes en entree vers le serveur 
+        double ajouter(in double a ,in double b);
+    };
+};
+
+
+==================================================
+FICHIER : ./src/Client.java
+==================================================
+import org.omg.CORBA.ORB;
+import org.omg.CosNaming.*;
+import CalculApp.*;
+
+public class Client
+{
+    public static void main(String [] args)
+    {
+        try {
+            ORB orb=ORB.init(args, null);
+            org.omg.CORBA.Object namingContextObject =orb.resolve_initial_references("NameService");
+            NamingContextExt namingContext=NamingContextExtHelper.narrow(namingContextObject);
+            Calculateur calc=CalculateurHelper.narrow(namingContext.resolve_str("CalculateurService"));
+            double resultat=calc.ajouter(12.5, 7.6);
+            System.out.println("Resulat recu du serveur :"+resultat);
+
+            
+        } catch (Exception e) {
+            // TODO: handle exception
+            e.printStackTrace();
+        }
+    }
+}
+
+
+==================================================
+FICHIER : ./src/compile.sh
+==================================================
+idlj -fall Calculateur.idl
+#Commede va genere un dossier 'CalculApp' contenant les fichiers java necessaire ]
+# Calculateur.java, CalculateurHelper.java, CalculateurHolder.java, CalculateurPOA.java, CalculateurOperations.java 
+
+
+==================================================
+FICHIER : ./src/Serveur.java
+==================================================
+import CalculApp.Calculateur;
+import CalculApp.CalculateurHelper;
+import CalculApp.CalculateurImpl;
+
+import org.omg.CORBA.ORB;
+import org.omg.PortableServer.POA;
+import org.omg.PortableServer.POAHelper;
+public class Serveur {
+    public static void main(String [ ] args)
+    {
+        try 
+        {
+            ORB orb= ORB.init(args,null);
+            POA rootPOA= POAHelper.narrow(orb.resolve_initial_references("RootPOA"));
+            rootPOA.the_POAManager().activate();
+            CalculateurImpl calculateurImpl=new CalculateurImpl();
+            org.omg.CORBA.Object ref=rootPOA.servant_to_reference(calculateurImpl);
+
+            org.omg.CORBA.Object namingContextObj=orb.resolve_initial_references("NameService");
+            org.omg.CosNaming.NamingContextExt namingContext=org.omg.CosNaming.NamingContextExtHelper.narrow(namingContextObj);
+            org.omg.CosNaming.NameComponent  path[]=namingContext.to_name("CalculateurService");
+            namingContext.rebind(path, ref);
+            
+
+            System.out.println("Serveur CORBA demarre ..");
+            orb.run();
+            
+        }catch(Exception e){
+             e.printStackTrace();
+
+        }
+    }
+
+    
+}
+
+
+
