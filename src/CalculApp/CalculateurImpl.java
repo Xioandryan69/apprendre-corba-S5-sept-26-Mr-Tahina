@@ -13,5 +13,15 @@ public class CalculateurImpl extends  CalculateurPOA
     {
         return a-b;
     }
+    @Override  
+    public double division(double a ,double b) throws DivisionParZero{
+
+        if(b==0)
+        {
+            throw new DivisionParZero("une divison ne doit pas etre diviser par zero");
+        }else{
+            return  a/b;
+        }
+    }
     
 }

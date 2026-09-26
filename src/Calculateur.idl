@@ -1,11 +1,25 @@
 // module = package = CalculApp
 module CalculApp 
 {
+    //Declarer exception 
+    exception DivisionParZero
+    {
+        string message;
+    };
+
+    //  Déclaration d'une structure de données
+    struct Operation {
+        double nombreA;
+        double nombreB;
+        string typeOperation; // ex: "+", "-", "/"
+    };
     // definit les methodes accessibles a distance  
     interface Calculateur
     {
         // in indique que les parametres sont envoyes en entree vers le serveur 
         double ajouter(in double a ,in double b);
         double soustraire(in double a,in double b);
+        double division(in double a,in double b) raises (DivisionParZero);
+        double calculer(in Operation op) raises (DivisionParZero);
     };
 };
