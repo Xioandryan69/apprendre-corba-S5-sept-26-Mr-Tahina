@@ -6,5 +6,6 @@ module CalculApp
     {
         // in indique que les parametres sont envoyes en entree vers le serveur 
         double ajouter(in double a ,in double b);
+        double soustraire(in double a,in double b);
     };
 };

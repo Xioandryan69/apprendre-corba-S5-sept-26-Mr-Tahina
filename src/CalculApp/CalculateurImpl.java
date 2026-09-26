@@ -7,5 +7,11 @@ public class CalculateurImpl extends  CalculateurPOA
     {
         return a+b;
     }
+
+    @Override 
+    public double soustraire(double a,double b)
+    {
+        return a-b;
+    }
     
 }

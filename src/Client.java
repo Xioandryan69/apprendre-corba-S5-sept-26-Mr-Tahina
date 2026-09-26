@@ -12,7 +12,9 @@ public class Client
             NamingContextExt namingContext=NamingContextExtHelper.narrow(namingContextObject);
             Calculateur calc=CalculateurHelper.narrow(namingContext.resolve_str("CalculateurService"));
             double resultat=calc.ajouter(12.5, 7.6);
-            System.out.println("Resulat recu du serveur :"+resultat);
+            double resultatSoustraction=calc.soustraire(12.5, 7.5);
+            System.out.println("Resulat recu du serveur addition:"+resultat);
+            System.out.println("Resulat recu du serveur soustraction:"+resultatSoustraction);
 
             
         } catch (Exception e) {
