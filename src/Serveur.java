@@ -12,14 +12,16 @@ public class Serveur {
         {
             ORB orb= ORB.init(args,null);
             POA rootPOA= POAHelper.narrow(orb.resolve_initial_references("RootPOA"));
+            rootPOA.the_POAManager().activate();
             CalculateurImpl calculateurImpl=new CalculateurImpl();
             org.omg.CORBA.Object ref=rootPOA.servant_to_reference(calculateurImpl);
-            Calculateur calculateur=CalculateurHelper.narrow(ref);
-            String ior=orb.object_to_string(calculateur);
-            System.out.println("IOR=");
-            System.out.println(ior);
 
-            rootPOA.the_POAManager().activate();
+            org.omg.CORBA.Object namingContextObj=orb.resolve_initial_references("NameService");
+            org.omg.CosNaming.NamingContextExt namingContext=org.omg.CosNaming.NamingContextExtHelper.narrow(namingContextObj);
+            org.omg.CosNaming.NameComponent  path[]=namingContext.to_name("CalculateurService");
+            namingContext.rebind(path, ref);
+            
+
             System.out.println("Serveur CORBA demarre ..");
             orb.run();
             
