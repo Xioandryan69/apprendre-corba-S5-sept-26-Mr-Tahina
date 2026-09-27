@@ -1,0 +1,1 @@
+omniidl -bcxx Calculateur.idl

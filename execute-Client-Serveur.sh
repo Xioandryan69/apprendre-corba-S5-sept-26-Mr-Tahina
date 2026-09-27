@@ -26,3 +26,6 @@ $JAVA_HOME/java -cp bin Client -ORBInitialHost localhost -ORBInitialPort 1050
 echo "Arrêt des services..."
 kill $PID_SERVEUR 2>/dev/null
 kill $PID_ORBD 2>/dev/null
+
+# /usr/lib/jvm/java-8-openjdk-amd64/bin/javac -cp bin Serveur -ORBInitialPort 1050 -ORBInitialHost localhost &
+# /usr/lib/jvm/java-8-openjdk-amd64/bin/java -cp bin Client -ORBInitialPort 2809 -ORBInitialHost localhost &
